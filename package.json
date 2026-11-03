@@ -1,0 +1,16 @@
+{
+  "name": "qq-companion-bot-source",
+  "private": true,
+  "version": "1.2.1",
+  "scripts": {
+    "build": "node scripts/build.cjs",
+    "test": "node scripts/test.cjs"
+  },
+  "dependencies": {
+    "@tencent-connect/qqbot-nodejs": "1.0.5"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "playwright-core": "1.60.0"
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 3,
+  "minCindyVersion": "0.1.121",
+  "id": "qq-companion-bot",
+  "name": "QQ 群伙伴",
+  "description": "多个官方 QQ 群机器人自动处理群内 @ 文字或图片，指定不同 Cindy 伙伴，按发言人记录追问。",
+  "whenToUse": "回复通过 QQ 群机器人转交的问题、查看 QQ 群机器人连接状态和投递情况时使用。",
+  "version": "1.2.1",
+  "kind": "chip",
+  "releaseNotes": "完整保存AppID、AppSecret及伙伴后默认自动连接；Cindy启动后恢复已启用机器人，连接进程停止或崩溃时自动检查并重连，按间隔退避。主动暂停不会自动恢复；缺少凭证或权限时停止重试。保留原账号、凭证、多机器人路由和追问，不重放已投递或结果不确定的消息。",
+  "entry": "main.js",
+  "icon": "assets/icon.png",
+  "command": "QQ群伙伴",
+  "launch": "resident",
+  "settingsHtml": "settings.html",
+  "panel": {
+    "title": "QQ 群伙伴",
+    "html": "settings.html",
+    "position": "tab"
+  },
+  "showTaskPreferences": false,
+  "sessionContext": true,
+  "fs": true,
+  "agent": {
+    "tasks": true,
+    "targets": true
+  },
+  "node": {
+    "entry": "node/worker.cjs",
+    "protocol": "json-rpc-stdio",
+    "lifecycle": "resident",
+    "secretBindings": [
+      {
+        "key": "qq_app_secret",
+        "label": "QQ AppSecret",
+        "methods": [
+          "qq/connect"
+        ],
+        "hint": "在 QQ 开放平台创建官方机器人。AppSecret 仅交给本机 QQ 连接进程，不进入聊天。",
+        "url": "https://q.qq.com/"
+      },
+      {
+        "key": "qq_app_secret_2",
+        "label": "机器人 2 QQ AppSecret",
+        "methods": [
+          "qq/connect/2"
+        ],
+        "hint": "在插件设置填写此机器人的独立凭证，密钥不进入聊天。",
+        "url": "https://q.qq.com/"
+      },
+      {
+        "key": "qq_app_secret_3",
+        "label": "机器人 3 QQ AppSecret",
+        "methods": [
+          "qq/connect/3"
+        ],
+        "hint": "在插件设置填写此机器人的独立凭证，密钥不进入聊天。",
+        "url": "https://q.qq.com/"
+      },
+      {
+        "key": "qq_app_secret_4",
+        "label": "机器人 4 QQ AppSecret",
+        "methods": [
+          "qq/connect/4"
+        ],
+        "hint": "在插件设置填写此机器人的独立凭证，密钥不进入聊天。",
+        "url": "https://q.qq.com/"
+      }
+    ]
+  },
+  "setup": {
+    "requires": []
+  },
+  "tools": [
+    {
+      "name": "get_status",
+      "description": "查看 QQ 连接状态与最近的问题投递记录。不读取伙伴聊天历史。",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_question",
+      "description": "查看本次 QQ 请求摘要及状态；只能由实际接收该请求的伙伴会话调用。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "description": "插件交给伙伴的原始请求编号"
+          }
+        },
+        "required": [
+          "request_id"
+        ]
+      }
+    },
+    {
+      "name": "reply_to_qq",
+      "description": "将文字答复发送到请求原来的 QQ 群，使用该机器人的连接并关联原消息。仅接收该问题的伙伴会话可调用；主人须已启用此机器人。只能回复一次；发送结果不确定时不要重试。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "description": "插件交给伙伴的原始请求编号"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1800,
+            "description": "发到 QQ 原群的文字答复，最多 1800 字符。"
+          }
+        },
+        "required": [
+          "request_id",
+          "text"
+        ]
+      }
+    }
+  ],
+  "manual": {
+    "items": [
+      {
+        "dir": "manual/quick-start",
+        "name": "quick-start",
+        "description": "QQ 开放平台准备、多机器人与伙伴配置、默认全群 @ 答疑、追问及自动连接恢复。"
+      }
+    ]
+  }
+}

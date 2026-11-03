@@ -1,0 +1,12 @@
+node_modules/
+.verification/
+*.cindy
+*.log
+.env
+.env.*
+!.env.example
+bridge-state*.json
+*.pem
+*.key
+.DS_Store
+Thumbs.db
