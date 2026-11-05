@@ -20,9 +20,9 @@
 <div id="partners" class="partners" role="radiogroup" aria-label="选择回答伙伴"></div><p id="routing-state" class="muted"></p>
 <div class="notice"><strong>所有群内 @ 都可提问</strong><p>未选择伙伴时，每条问题在对话中新开一个会话，使用系统辅助模型。选择伙伴后沿用该伙伴的模型和权限。宿主未提供原头像时显示名称头像。</p></div>
 <div class="actions"><button id="connect" type="button" class="primary">保存并连接</button><button id="save-config" type="button">保存配置</button><button id="pause" type="button">暂停此机器人</button></div></section>
-<section><div class="section-heading"><h2>运行与追问</h2><button id="refresh" type="button">刷新状态</button></div><p id="connection" class="status-pill">正在自检</p><p id="history-state" class="muted"></p>
-<p class="muted">追问按机器人、群、发言人和伙伴分别保存 7 天、最多 8 轮。“新话题”在轮到处理时重置自己的记录。</p><div id="jobs"></div>
-<details><summary>管理记录与凭证</summary><div class="actions"><button id="clear-history" type="button">清空追问记录</button><button id="clear-secret" type="button">清除凭证并暂停</button></div><p class="muted">仅清理插件记录，Cindy 对话保留。删除机器人会停止连接、清除该机器人的凭证和插件记录。</p></details></section>
+<section><div class="section-heading"><h2>运行与连续会话</h2><button id="refresh" type="button">刷新状态</button></div><p id="connection" class="status-pill">正在自检</p><p id="history-state" class="muted"></p>
+<p class="muted">普通 @ 一次性回答，插件不保存问答正文。先发送 /talk 或 /talk 问题可开启连续会话，该人在同一个群里继续 @ 即可追问；连续 2 小时无消息或答复后结束。不同机器人、群、发言人和伙伴分别记录会话，最多保留 8 轮。Cindy 自身的对话仍按宿主规则保存。</p><div id="jobs"></div>
+<details><summary>管理记录与凭证</summary><div class="actions"><button id="clear-history" type="button">结束本机器人的连续会话</button><button id="clear-secret" type="button">清除凭证并暂停</button></div><p class="muted">结束全部连续会话并清理插件缓存，Cindy 对话保留。删除机器人会停止连接、清除该机器人的凭证和插件记录。</p></details></section>
 </div>
 <details><summary>图片与收发限制</summary><p>支持 PNG/JPEG/WebP，每条最多 4 张，每张不超过 5 MiB，回群答复为文字。每个机器人同时处理 1 条，最多排队 12 条，答复最多 1800 字符。</p><p>发送结果不确定时不会重发。电脑需保持 Cindy 运行且联网，进群与回复限制以 QQ 开放平台为准。</p></details>
 </main><script src="/settings.js"></script></body></html>

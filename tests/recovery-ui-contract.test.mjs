@@ -39,11 +39,11 @@ test("unselected route connects and dispatches to a new task with caller checks 
   await assert.rejects(h.fleet.reply("12345:first", "答复", "wrong"), e => e.code === "QUESTION_FORBIDDEN");
   await h.fleet.reply("12345:first", "答复", "new-session"); assert.equal(h.fleet.controllers.get("bot1").jobs[0].state, "replied");
 });
-test("queued reset does not destroy existing history before its turn, even if it expires", async () => {
+test("queued talk resume preserves history before its turn, even if the request expires", async () => {
   const h = harness(async () => ({ sent: true })); await h.fleet.init(); await h.fleet.configure({ bots: [bot] });
   await h.fleet.status({ botId: "bot1", state: "connected" });
-  await h.fleet.receive(message("old", "旧问题")); await h.fleet.reply("12345:old", "旧答案", "new-session");
-  await h.fleet.receive(message("active", "追问")); await h.fleet.receive(message("reset", "新话题"));
+  await h.fleet.receive(message("old", "/talk 旧问题")); await h.fleet.reply("12345:old", "旧答案", "new-session");
+  await h.fleet.receive(message("active", "追问")); await h.fleet.receive(message("reset", "/talk 继续"));
   assert.equal(h.fleet.controllers.get("bot1").histories[0].turns[0].answer, "旧答案");
   h.clock.now += 600001; await h.fleet.tick();
   assert.equal(h.fleet.controllers.get("bot1").histories[0].turns[0].answer, "旧答案");
@@ -53,7 +53,7 @@ test("removing the last bot clears all slot records and permits clean reuse", as
   const b = h.fleet.controllers.get("bot1"); b.jobs = [{ id: "old", state: "failed" }]; b.groups = [{ id: "group" }]; b.histories = [{ key: "old", turns: [], updatedAt: h.clock.now }];
   await assert.rejects(h.fleet.clearBot("bot1"), e => e.code === "BOT_STILL_CONFIGURED");
   await h.fleet.configure({ bots: [] }); await h.fleet.clearBot("bot1");
-  assert.deepEqual(h.disk.get("bot1"), { schema: 2, jobs: [], groups: [], histories: [] });
+  assert.deepEqual(h.disk.get("bot1"), { schema: 3, jobs: [], groups: [], histories: [] });
   assert.deepEqual(h.fleet.snapshot().bots, []); await h.fleet.configure({ bots: [bot] }); assert.deepEqual(b.jobs, []);
 });
 test("diagnostic snapshot is available before or during failed initialization", () => {
@@ -70,7 +70,7 @@ test("switching partners during an awaited submission cancels the old request an
   b.host.send = async () => ({ accepted: true, taskId: "new-session" });
   await h.fleet.receive(message("new", "新问题")); assert.equal(b.jobs[1].state, "waiting");
 });
-const emptyState = { schema: 2, jobs: [], groups: [], histories: [] };
+const emptyState = { schema: 3, jobs: [], groups: [], histories: [] };
 test("deletion clears a slot immediately while its target receipt is pending", async () => {
   const h = harness(); let finish, started; const start = new Promise(r => started = r);
   await h.fleet.init(); await h.fleet.configure({ bots: [bot] }); await h.fleet.status({ botId: "bot1", state: "connected" });

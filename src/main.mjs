@@ -18,18 +18,73 @@ const imageSupport = async () => {
 };
 const defaultSupport = async () => {
   const caps = await cindy.tasks?.capabilities?.();
-  if (!caps?.operations?.includes("create") || !caps.operations.includes("send")) throw fault("HOST_UNSUPPORTED", "当前 Cindy 不支持插件新建对话。");
+  if (!["create", "get", "send"].every(op => caps?.operations?.includes(op) && typeof cindy.tasks?.[op] === "function")) throw fault("HOST_UNSUPPORTED", "当前 Cindy 不支持插件新建和恢复连续对话。");
 };
+async function taskRequestKey(key) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key));
+  return "qq:" + Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+// PERMISSION_DENIED can also arrive from the slot's post-dispatch permission
+// check, so it cannot prove that an input was never accepted.
+const rejectedBeforeSend = new Set(["INVALID_REQUEST", "TASK_NOT_FOUND", "TASK_BUSY", "REVISION_CONFLICT"]);
+const lostTalk = () => Object.assign(fault("TALK_TASK_UNAVAILABLE", "连续会话已结束，请重新 /talk。"), { beforeSend: true });
 async function sendQuestion(params, assertCurrent) {
   assertCurrent();
-  if (params.target) return cindy.targets.send(params);
-  await defaultSupport();
+  const { talkCreateKey, talkTaskId, ...message } = params;
+  if (params.target) return cindy.targets.send(message);
+  let task;
+  try { task = await openTalk(params, assertCurrent); } catch (error) { error.beforeSend = true; throw error; }
+  const requestKey = await taskRequestKey(params.requestKey);
   assertCurrent();
-  const task = await cindy.tasks.create({ requestKey: params.requestKey + ":create", title: "QQ 群提问" });
-  assertCurrent();
-  const run = await cindy.tasks.send({ taskId: task.taskId, expectedRevision: task.revision, requestKey: params.requestKey, text: params.text, ...(params.attachments ? { attachments: params.attachments } : {}) });
+  let run;
+  try {
+    run = await cindy.tasks.send({ taskId: task.taskId, expectedRevision: task.revision, requestKey, text: params.text, ...(params.attachments ? { attachments: params.attachments } : {}) });
+  } catch (error) {
+    if (rejectedBeforeSend.has(error.code)) {
+      error.beforeSend = true;
+      if (params.talkTaskId && error.code === "TASK_NOT_FOUND") throw lostTalk();
+      if (params.talkTaskId && error.code === "TASK_BUSY") {
+        // TASK_BUSY can also mean attachment pressure. End a talk only when
+        // the Host confirms that its task disappeared or became inactive.
+        let current;
+        try { current = await cindy.tasks.get({ taskId: task.taskId }); }
+        catch (lookupError) { if (lookupError.code === "TASK_NOT_FOUND") throw lostTalk(); throw error; }
+        assertCurrent();
+        if (!current || current.status && current.status !== "active") throw lostTalk();
+      }
+    }
+    throw error;
+  }
   if (typeof run?.runId !== "string" || !run.runId) throw fault("DELIVERY_UNCERTAIN", "无法确认新对话是否已接受问题，请检查对话列表。");
   return { accepted: true, taskId: task.taskId };
+}
+async function openTalk(params, assertCurrent) {
+  assertCurrent();
+  if (params.target) return {};
+  await defaultSupport(); assertCurrent();
+  if (params.talkTaskId) {
+    if (typeof cindy.tasks.get !== "function") throw fault("HOST_UNSUPPORTED", "当前 Cindy 不支持恢复连续会话。");
+    try {
+      const task = await cindy.tasks.get({ taskId: params.talkTaskId });
+      if (!task || task.status && task.status !== "active") throw fault("TALK_TASK_UNAVAILABLE", "连续会话已不可用，请重新 /talk。");
+      return task;
+    } catch (error) {
+      if (["TASK_NOT_FOUND", "TALK_TASK_UNAVAILABLE"].includes(error.code)) throw lostTalk();
+      throw error;
+    }
+  }
+  const requestKey = params.talkCreateKey || (await taskRequestKey(params.requestKey)) + ":create";
+  assertCurrent();
+  try {
+    const task = await cindy.tasks.create({ requestKey, title: params.talkCreateKey ? "QQ 连续会话" : "QQ 群提问" });
+    if (params.talkCreateKey && (!task || task.status && task.status !== "active")) throw lostTalk();
+    return task;
+  } catch (error) {
+    // Replaying a creation receipt may resolve a task that is already gone,
+    // even when an interrupted previous send never recorded its taskId.
+    if (params.talkCreateKey && error.code === "TASK_NOT_FOUND") throw lostTalk();
+    throw error;
+  }
 }
 const controller = new BridgeFleet({ forBot: id => {
   const path = id === "bot1" ? "bridge-state.json" : "bridge-state-" + id + ".json";
@@ -37,7 +92,7 @@ const controller = new BridgeFleet({ forBot: id => {
   botId: id, read: () => readState(path),
   write: async state => { const result = await cindy.fs({ op: "write", root: "data", path, content: JSON.stringify(state) }); if (!result.ok) throw fault("STATE_WRITE_FAILED", "无法保存投递状态，已停止发送。"); },
   resolve: id => cindy.targets.resolve({ target: { kind: "bot", id } }),
-  send: sendQuestion, defaultSupport,
+  send: sendQuestion, openTalk, defaultSupport,
   imageSupport,
   images: (job, epoch) => collectImages(controller.controllers.get(id).host.node, job, epoch),
   node: async (method, params) => {

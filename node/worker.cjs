@@ -3950,7 +3950,7 @@ var ApiClient = class {
 };
 
 // node_modules/@tencent-connect/qqbot-nodejs/dist/protocol/api/media-chunked.js
-var crypto = __toESM(require("node:crypto"), 1);
+var crypto2 = __toESM(require("node:crypto"), 1);
 var fs = __toESM(require("node:fs"), 1);
 var https = __toESM(require("node:https"), 1);
 
@@ -4142,7 +4142,7 @@ var ChunkedMediaApi = class {
       const offset = (partIndex - 1) * block_size;
       const length = Math.min(block_size, fileSize - offset);
       const partBuffer = await readPart(input, offset, length);
-      const md5Hex = crypto.createHash("md5").update(partBuffer).digest("hex");
+      const md5Hex = crypto2.createHash("md5").update(partBuffer).digest("hex");
       this.logger?.debug?.(`${prefix} part ${partIndex}/${parts.length}: ${formatFileSize(length)} offset=${offset} md5=${md5Hex}`);
       await putToPresignedUrl(part.presigned_url, partBuffer, partIndex, parts.length, this.logger, prefix);
       await this.callUploadPartFinish(opts, upload_id, partIndex, length, md5Hex, retryTimeoutMs);
@@ -4237,15 +4237,15 @@ async function readPart(input, offset, length) {
 }
 async function computeHashes(input) {
   if (input.kind === "buffer") {
-    const md5 = crypto.createHash("md5").update(input.buffer).digest("hex");
-    const sha1 = crypto.createHash("sha1").update(input.buffer).digest("hex");
-    const md5_10m = input.size > MD5_10M_SIZE ? crypto.createHash("md5").update(input.buffer.subarray(0, MD5_10M_SIZE)).digest("hex") : md5;
+    const md5 = crypto2.createHash("md5").update(input.buffer).digest("hex");
+    const sha1 = crypto2.createHash("sha1").update(input.buffer).digest("hex");
+    const md5_10m = input.size > MD5_10M_SIZE ? crypto2.createHash("md5").update(input.buffer.subarray(0, MD5_10M_SIZE)).digest("hex") : md5;
     return { md5, sha1, md5_10m };
   }
   return new Promise((resolve, reject) => {
-    const md5 = crypto.createHash("md5");
-    const sha1 = crypto.createHash("sha1");
-    const md5_10m = crypto.createHash("md5");
+    const md5 = crypto2.createHash("md5");
+    const sha1 = crypto2.createHash("sha1");
+    const md5_10m = crypto2.createHash("md5");
     let consumed = 0;
     const needsMd5_10m = input.size > MD5_10M_SIZE;
     const stream = fs.createReadStream(input.path);
@@ -5610,7 +5610,7 @@ function previewPayload(data) {
 }
 
 // node_modules/@tencent-connect/qqbot-nodejs/dist/protocol/transport/webhook-verify.js
-var crypto2 = __toESM(require("node:crypto"), 1);
+var crypto3 = __toESM(require("node:crypto"), 1);
 function deriveSeed(botSecret) {
   let seed = botSecret;
   while (seed.length < 32) {
@@ -5620,7 +5620,7 @@ function deriveSeed(botSecret) {
 }
 function getKeyPair(botSecret) {
   const seed = deriveSeed(botSecret);
-  const privateKey = crypto2.createPrivateKey({
+  const privateKey = crypto3.createPrivateKey({
     key: Buffer.concat([
       // Ed25519 PKCS8 DER prefix for 32-byte seed
       Buffer.from("302e020100300506032b657004220420", "hex"),
@@ -5629,12 +5629,12 @@ function getKeyPair(botSecret) {
     format: "der",
     type: "pkcs8"
   });
-  const publicKey = crypto2.createPublicKey(privateKey);
+  const publicKey = crypto3.createPublicKey(privateKey);
   return { privateKey, publicKey };
 }
 function ed25519Sign(botSecret, message) {
   const { privateKey } = getKeyPair(botSecret);
-  const signature = crypto2.sign(null, message, privateKey);
+  const signature = crypto3.sign(null, message, privateKey);
   return signature.toString("hex");
 }
 function verifyWebhookSignature(params) {
@@ -5646,7 +5646,7 @@ function verifyWebhookSignature(params) {
       body
     ]);
     const sigBuffer = Buffer.from(signature, "hex");
-    return crypto2.verify(null, message, publicKey, sigBuffer);
+    return crypto3.verify(null, message, publicKey, sigBuffer);
   } catch {
     return false;
   }
@@ -5854,10 +5854,10 @@ function getHeader(headers, key) {
 }
 
 // node_modules/@tencent-connect/qqbot-nodejs/dist/protocol/utils/upload-cache.js
-var crypto3 = __toESM(require("node:crypto"), 1);
+var crypto4 = __toESM(require("node:crypto"), 1);
 var MAX_CACHE_SIZE = 500;
 function computeFileHash(data) {
-  return crypto3.createHash("md5").update(data).digest("hex");
+  return crypto4.createHash("md5").update(data).digest("hex");
 }
 function buildCacheKey(contentHash, scope, targetId, fileType) {
   return `${contentHash}:${scope}:${targetId}:${fileType}`;
@@ -6822,6 +6822,7 @@ var QQBot = class {
 };
 
 // src/controller.mjs
+var TALK_IDLE_MS = 2 * 60 * 60 * 1e3;
 function fault(code, message) {
   return Object.assign(new Error(message), { code });
 }
