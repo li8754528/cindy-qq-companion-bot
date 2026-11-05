@@ -14,8 +14,9 @@ async function runtime({ disk = new Map(), nodeError, paused = false, selectedPa
     onHostMessage(fn) { handler = fn; }, async send(result) { results.push(result); },
     async fs(req) {
       calls.push({ kind: "fs", req });
+      if (!req.path.split("/").every(segment => /^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$/.test(segment))) return { ok: false, message: "path 必须是安全相对路径" };
       if (req.op === "read") return disk.has(req.path) ? { ok: true, content: disk.get(req.path) } : { ok: false, errorCode: "NOT_FOUND" };
-      if (denyBackup && req.path.includes("-schema3-backup-")) return { ok: false };
+      if (denyBackup && req.path.startsWith("backups/schema3-")) return { ok: false };
       if (control.beforeWrite) await control.beforeWrite(req);
       disk.set(req.path, req.content); return { ok: true };
     },
@@ -99,12 +100,17 @@ test("formal host without companionTasks connects, preserves selected-partner de
 test("failed development-version state is backed up before stable migration without replaying queued messages", async () => {
   const state = { schema: 3, jobs: [{ id: "12345:old", appId: "12345", groupId: "group_1", senderId: "person", messageId: "old", targetId: "partner", sandbox: false, text: "OLD_QUESTION_NOT_TO_REPLAY", state: "queued", createdAt: Date.now() }], groups: [{ id: "group_1" }], histories: [], tasks: [{ taskId: "old-qq-session", createdAt: Date.now() }] };
   const disk = new Map([["bridge-state.json", JSON.stringify(state)]]); const h = await runtime({ disk, selectedPartner: true });
-  const backups = [...disk.keys()].filter(path => path.startsWith("bridge-state-schema3-backup-")); assert.equal(backups.length, 1); assert.deepEqual(JSON.parse(disk.get(backups[0])), state);
+  const backups = [...disk.keys()].filter(path => path.startsWith("backups/schema3-bot1-")); assert.equal(backups.length, 1); assert.deepEqual(JSON.parse(disk.get(backups[0])), state);
   const migrated = JSON.parse(disk.get("bridge-state.json")); assert.equal(migrated.schema, 2); assert.equal(migrated.jobs[0].state, "cancelled"); assert.equal(migrated.groups[0].id, "group_1");
   assert.equal(h.calls.filter(c => c.kind === "partner-send" || c.kind === "task-send").length, 0);
   assert.equal((await h.tool("send_group_message", args, "old-qq-session")).errorCode, "PROACTIVE_FORBIDDEN");
   const restarted = await runtime({ disk, selectedPartner: true });
   assert.equal((await restarted.tool("send_group_message", args, "old-qq-session")).errorCode, "PROACTIVE_FORBIDDEN");
+});
+test("schema3 backups for all four bot slots satisfy the real host path-segment limit", async () => {
+  const disk = new Map(); for (const id of ["bot1", "bot2", "bot3", "bot4"]) disk.set(id === "bot1" ? "bridge-state.json" : "bridge-state-" + id + ".json", JSON.stringify({ schema: 3, jobs: [], groups: [], histories: [], tasks: [] }));
+  await runtime({ disk, selectedPartner: true }); const backups = [...disk.keys()].filter(path => path.startsWith("backups/schema3-"));
+  assert.equal(backups.length, 4); for (const path of backups) assert.ok(path.split("/").every(segment => segment.length <= 64));
 });
 test("failed schema3 backup prevents conversion, connections and external sends", async () => {
   const original = JSON.stringify({ schema: 3, jobs: [], histories: [], groups: [], tasks: [] });

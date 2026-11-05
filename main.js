@@ -734,7 +734,7 @@
         read: async () => {
           const state = await readState(path);
           if (state?.schema !== 3) return state;
-          const backupPath = path.replace(".json", "-schema3-backup-" + crypto.randomUUID() + ".json");
+          const backupPath = "backups/schema3-" + id + "-" + crypto.randomUUID() + ".json";
           const backup = await cindy.fs({ op: "write", root: "data", path: backupPath, content: JSON.stringify(state) });
           if (!backup.ok) throw fault("STATE_WRITE_FAILED", "\u65E0\u6CD5\u5907\u4EFD\u5F00\u53D1\u7248\u72B6\u6001\uFF0C\u5DF2\u505C\u6B62\u517C\u5BB9\u8FC1\u79FB\uFF0C\u8BF7\u68C0\u67E5\u63D2\u4EF6\u6570\u636E\u3002");
           for (const task of Array.isArray(state.tasks) ? state.tasks : []) if (typeof task?.taskId === "string") migratedQQSessions.add(task.taskId);

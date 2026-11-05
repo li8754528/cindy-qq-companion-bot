@@ -40,7 +40,7 @@ const controller = new BridgeFleet({ forBot: id => {
     const state = await readState(path);
     if (state?.schema !== 3) return state;
     // Preserve the entire development-state snapshot before restoring the stable runtime schema.
-    const backupPath = path.replace(".json", "-schema3-backup-" + crypto.randomUUID() + ".json");
+    const backupPath = "backups/schema3-" + id + "-" + crypto.randomUUID() + ".json";
     const backup = await cindy.fs({ op: "write", root: "data", path: backupPath, content: JSON.stringify(state) });
     if (!backup.ok) throw fault("STATE_WRITE_FAILED", "无法备份开发版状态，已停止兼容迁移，请检查插件数据。");
     for (const task of Array.isArray(state.tasks) ? state.tasks : []) if (typeof task?.taskId === "string") migratedQQSessions.add(task.taskId);
