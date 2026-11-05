@@ -1,5 +1,5 @@
 export const PLUGIN_ID = "qq-companion-bot";
-export const PLUGIN_VERSION = "1.3.0";
+export const PLUGIN_VERSION = "1.5.0";
 const LIVE = new Set(["sending", "waiting", "replying"]);
 const DONE = new Set(["replied", "failed", "cancelled", "expired", "no_reply", "uncertain"]);
 export function fault(code, message) { return Object.assign(new Error(message), { code }); }

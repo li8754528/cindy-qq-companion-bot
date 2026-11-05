@@ -14,7 +14,7 @@ readline.createInterface({ input: process.stdin }).on("line", async line => {
   } catch (error) {
     // Never serialize SDK error messages, HTTP bodies or credential values.
     if (error.code === "METHOD_NOT_FOUND") { output({ jsonrpc: "2.0", id: request.id, error: { code: -32601, message: "Method not found" } }); return; }
-    const code = ["QQ_SECRET_REQUIRED", "QQ_NOT_CONNECTED", "INVALID_REPLY", "REPLY_CONFLICT", "QQ_SEND_UNCERTAIN", "BOT_CONFIG_INVALID", "BOT_APP_DUPLICATE"].includes(error.code) || /^IMAGE_[A-Z_]+$/.test(error.code || "") ? error.code : "QQ_REQUEST_FAILED";
+    const code = ["QQ_SECRET_REQUIRED", "QQ_NOT_CONNECTED", "INVALID_REPLY", "REPLY_CONFLICT", "QQ_SEND_UNCERTAIN", "BOT_CONFIG_INVALID", "BOT_APP_DUPLICATE", "INVALID_GROUP_MESSAGE", "GROUP_MESSAGE_CONFLICT"].includes(error.code) || /^(IMAGE_[A-Z_]+|QQ_API_\d{3,10}|QQ_HTTP_4\d\d)$/.test(error.code || "") ? error.code : "QQ_REQUEST_FAILED";
     output({ jsonrpc: "2.0", id: request.id, error: { code: -32000, message: code } });
   }
 });
