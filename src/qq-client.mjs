@@ -58,6 +58,39 @@ export class QQClientBridge {
     return { offset: params.offset, nextOffset: end, base64: i.buffer.subarray(params.offset, end).toString("base64"), done: end === i.buffer.length };
   }
   releaseImages(params) { if (this.imageTransfer?.id === params.transferId) { this.inboundImages.delete(this.imageTransfer.requestId); this.imageTransfer = null; } return { released: true }; }
+  async sendGroup(params) {
+    if (!this.client || this.appId !== params.appId || this.connectionState !== "connected" || params.epoch !== this.epoch) throw fault("QQ_NOT_CONNECTED", "QQ 连接不可用或已更换。");
+    if (typeof params.groupId !== "string" || !/^[A-Za-z0-9_-]{1,160}$/.test(params.groupId)
+      || typeof params.requestId !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(params.requestId)
+      || typeof params.text !== "string" || !params.text.trim() || params.text.length > 1800) throw fault("INVALID_GROUP_MESSAGE", "主动消息参数不正确。");
+    this.proactiveSends ??= new Map();
+    const old = this.proactiveSends.get(params.requestId);
+    if (old) {
+      if (old.appId !== params.appId || old.groupId !== params.groupId || old.text !== params.text) throw fault("GROUP_MESSAGE_CONFLICT", "同一主动消息请求已有不同内容。");
+      if (old.result) return old.result;
+      throw fault("QQ_SEND_UNCERTAIN", "主动消息正在发送或结果不确定，请查看目标群。");
+    }
+    const bot = this.client, generation = this.generation;
+    const record = { appId: params.appId, groupId: params.groupId, text: params.text };
+    this.proactiveSends.set(params.requestId, record);
+    try {
+      // Omitting msgId selects the SDK's POST /v2/groups/{group_openid}/messages proactive path.
+      const result = await bot.sendText({ scope: "group", targetId: params.groupId }, params.text);
+      if (this.client !== bot || generation !== this.generation || typeof result?.id !== "string" || !result.id) throw fault("QQ_SEND_UNCERTAIN", "QQ 未确认主动消息发送。");
+      record.result = { sent: true, messageId: result.id, ...(typeof result.timestamp === "string" ? { timestamp: result.timestamp } : {}) };
+      return record.result;
+    } catch (error) {
+      // Never forward SDK messages/bodies: they can contain credentials and private request details.
+      if (this.client === bot && generation === this.generation && error.httpStatus >= 400 && error.httpStatus < 500) {
+        const code = Number.isSafeInteger(error.bizCode) && error.bizCode > 0 && error.bizCode < 1e10 ? "QQ_API_" + error.bizCode : "QQ_HTTP_" + error.httpStatus;
+        throw fault(code, "QQ 拒绝主动消息，请检查机器人权限、群成员资格和发送配额。");
+      }
+      throw fault("QQ_SEND_UNCERTAIN", "主动消息发送结果不确定，请查看目标群；不要自动重发。");
+    } finally {
+      // Payloads stay in memory only. Durable deduplication lives in the separate proactive outbox.
+      if (this.proactiveSends.size > 200) this.proactiveSends.delete(this.proactiveSends.keys().next().value);
+    }
+  }
   async reply(params) {
     if (!this.client || this.appId !== params.appId) throw fault("QQ_NOT_CONNECTED", "QQ 连接不可用。");
     if (![params.groupId, params.messageId, params.requestId].every(x => typeof x === "string" && x.length > 0 && x.length < 200) || typeof params.text !== "string" || !params.text || params.text.length > 1800) throw fault("INVALID_REPLY", "答复参数不正确。");

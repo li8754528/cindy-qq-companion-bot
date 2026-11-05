@@ -3,11 +3,11 @@
   "minCindyVersion": "0.1.124",
   "id": "qq-companion-bot",
   "name": "QQ 群伙伴",
-  "description": "多个官方 QQ 群机器人回答群内 @ 文字或图片，普通 @ 一次性答复，/talk 开启按发言人隔离的两小时连续会话。",
-  "whenToUse": "回复通过 QQ 群机器人转交的问题、查看 QQ 群机器人连接状态和投递情况时使用。",
-  "version": "1.4.0",
+  "description": "多个官方 QQ 群机器人回答群内 @，普通问答单次回应，/talk 开启本人两小时续聊；保留主人主动群发。",
+  "whenToUse": "主人要主动给 QQ 群发通知或文字消息、回复通过 QQ 群机器人转交的问题、查看连接状态和发送回执时使用。",
+  "version": "1.5.1",
   "kind": "chip",
-  "releaseNotes": "普通 @ 改为一次性问答，插件不持久保存问题正文或自动积累追问。发送 /talk 或 /talk 问题开启连续会话，同一个人在同一群内后续普通 @ 继续会话；连续两小时没有有效新消息或确认答复后自动结束，下次 /talk 新开。未选伙伴时连续问答复用该人独立的 Cindy 会话；选伙伴时只注入对应发言人的连续会话缓存，伙伴原生历史不按群友强隔离。连续对话被删除或归档后提示重新 /talk，明确 /talk 使用新标识开启。升级清除旧版自动问答缓存，保留账号、凭证与防重复状态；结果不确定时不重发。原伙伴独立并发和七天任务信息清理留待后续，本版仍按每机器人单条处理。",
+  "releaseNotes": "相较 1.5.0：群内普通 @ 改为一次性问答，插件不持久保存正文或自动问答历史。/talk 或 /talk 问题开启本人同群续聊，后续普通 @ 也继续，连续两小时没有有效消息或确认答复后结束；未选伙伴使用系统辅助模型的独立对话，已选伙伴保持原模型与知识。任务创建身份在首条发送前保存，删除或归档后可用新 /talk 恢复；真实 QQ 长消息编号使用定长任务键；未知结果不重发。保留 1.5.0 主动群发、发送回执、账号凭证及全部管理功能；核心会话不会在重启时被降级清除，含并发任务映射的开发状态在处理前备份。伙伴原生历史非发言人强隔离。原伙伴独立并发与七天任务信息清理仍为 TODO。",
   "entry": "main.js",
   "icon": "assets/icon.png",
   "command": "QQ群伙伴",
@@ -74,7 +74,7 @@
   "tools": [
     {
       "name": "get_status",
-      "description": "查看 QQ 连接状态与最近的问题投递记录。不读取伙伴聊天历史。",
+      "description": "查看各机器人连接状态、已观察到的群标识、最近问答和主动消息发送回执。不读取伙伴聊天历史。",
       "parameters": {
         "type": "object",
         "properties": {}
@@ -118,6 +118,51 @@
           "text"
         ]
       }
+    },
+    {
+      "name": "send_group_message",
+      "description": "按主人的明确指令，用指定机器人主动给一个 QQ 群发送文字。无需原消息编号，目标必须为该机器人对应的 group_openid（不是群号）；可先 get_status 查看。需要机器人已连接、入群及 QQ 主动消息权限。群内问答任务禁止调用。相同 request_key 七天内防重复；结果不确定时检查原群，不要换编号重发。返回机器人、AppID、环境、群和消息回执。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "bot_id": {
+            "type": "string",
+            "enum": [
+              "bot1",
+              "bot2",
+              "bot3",
+              "bot4"
+            ],
+            "description": "get_status 中已配置的机器人编号，必须明确指定。"
+          },
+          "group_openid": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "description": "该机器人收到群事件时的群 OpenID；不能填 QQ 数字群号或其他机器人的群 OpenID。"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1800,
+            "description": "主人要求发送的文字，最多 1800 字符。"
+          },
+          "request_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "description": "本次发送唯一编号，由 AI 生成；查询同一发送须复用此编号。七天后过期，每次新的发送使用新编号。"
+          }
+        },
+        "required": [
+          "bot_id",
+          "group_openid",
+          "text",
+          "request_key"
+        ]
+      }
     }
   ],
   "manual": {
@@ -125,7 +170,7 @@
       {
         "dir": "manual/quick-start",
         "name": "quick-start",
-        "description": "QQ 开放平台准备、多机器人配置、普通 @ 一次性答复、/talk 连续会话和两小时超时。"
+        "description": "QQ 机器人配置、普通 @ 单次答复、/talk 两小时续聊、主动群发与连接恢复。"
       }
     ]
   }

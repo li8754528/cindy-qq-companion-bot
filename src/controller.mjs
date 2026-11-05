@@ -1,5 +1,5 @@
 export const PLUGIN_ID = "qq-companion-bot";
-export const PLUGIN_VERSION = "1.4.0";
+export const PLUGIN_VERSION = "1.5.1";
 export const TALK_IDLE_MS = 2 * 60 * 60 * 1000;
 const LIVE = new Set(["sending", "waiting", "replying"]);
 const DONE = new Set(["replied", "failed", "cancelled", "expired", "no_reply", "uncertain"]);
