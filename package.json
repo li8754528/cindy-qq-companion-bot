@@ -1,7 +1,7 @@
 {
   "name": "qq-companion-bot-source",
   "private": true,
-  "version": "1.3.0",
+  "version": "1.5.1",
   "scripts": {
     "build": "node scripts/build.cjs",
     "test": "node scripts/test.cjs"

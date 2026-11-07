@@ -3950,7 +3950,7 @@ var ApiClient = class {
 };
 
 // node_modules/@tencent-connect/qqbot-nodejs/dist/protocol/api/media-chunked.js
-var crypto = __toESM(require("node:crypto"), 1);
+var crypto2 = __toESM(require("node:crypto"), 1);
 var fs = __toESM(require("node:fs"), 1);
 var https = __toESM(require("node:https"), 1);
 
@@ -4142,7 +4142,7 @@ var ChunkedMediaApi = class {
       const offset = (partIndex - 1) * block_size;
       const length = Math.min(block_size, fileSize - offset);
       const partBuffer = await readPart(input, offset, length);
-      const md5Hex = crypto.createHash("md5").update(partBuffer).digest("hex");
+      const md5Hex = crypto2.createHash("md5").update(partBuffer).digest("hex");
       this.logger?.debug?.(`${prefix} part ${partIndex}/${parts.length}: ${formatFileSize(length)} offset=${offset} md5=${md5Hex}`);
       await putToPresignedUrl(part.presigned_url, partBuffer, partIndex, parts.length, this.logger, prefix);
       await this.callUploadPartFinish(opts, upload_id, partIndex, length, md5Hex, retryTimeoutMs);
@@ -4237,15 +4237,15 @@ async function readPart(input, offset, length) {
 }
 async function computeHashes(input) {
   if (input.kind === "buffer") {
-    const md5 = crypto.createHash("md5").update(input.buffer).digest("hex");
-    const sha1 = crypto.createHash("sha1").update(input.buffer).digest("hex");
-    const md5_10m = input.size > MD5_10M_SIZE ? crypto.createHash("md5").update(input.buffer.subarray(0, MD5_10M_SIZE)).digest("hex") : md5;
+    const md5 = crypto2.createHash("md5").update(input.buffer).digest("hex");
+    const sha1 = crypto2.createHash("sha1").update(input.buffer).digest("hex");
+    const md5_10m = input.size > MD5_10M_SIZE ? crypto2.createHash("md5").update(input.buffer.subarray(0, MD5_10M_SIZE)).digest("hex") : md5;
     return { md5, sha1, md5_10m };
   }
   return new Promise((resolve, reject) => {
-    const md5 = crypto.createHash("md5");
-    const sha1 = crypto.createHash("sha1");
-    const md5_10m = crypto.createHash("md5");
+    const md5 = crypto2.createHash("md5");
+    const sha1 = crypto2.createHash("sha1");
+    const md5_10m = crypto2.createHash("md5");
     let consumed = 0;
     const needsMd5_10m = input.size > MD5_10M_SIZE;
     const stream = fs.createReadStream(input.path);
@@ -5610,7 +5610,7 @@ function previewPayload(data) {
 }
 
 // node_modules/@tencent-connect/qqbot-nodejs/dist/protocol/transport/webhook-verify.js
-var crypto2 = __toESM(require("node:crypto"), 1);
+var crypto3 = __toESM(require("node:crypto"), 1);
 function deriveSeed(botSecret) {
   let seed = botSecret;
   while (seed.length < 32) {
@@ -5620,7 +5620,7 @@ function deriveSeed(botSecret) {
 }
 function getKeyPair(botSecret) {
   const seed = deriveSeed(botSecret);
-  const privateKey = crypto2.createPrivateKey({
+  const privateKey = crypto3.createPrivateKey({
     key: Buffer.concat([
       // Ed25519 PKCS8 DER prefix for 32-byte seed
       Buffer.from("302e020100300506032b657004220420", "hex"),
@@ -5629,12 +5629,12 @@ function getKeyPair(botSecret) {
     format: "der",
     type: "pkcs8"
   });
-  const publicKey = crypto2.createPublicKey(privateKey);
+  const publicKey = crypto3.createPublicKey(privateKey);
   return { privateKey, publicKey };
 }
 function ed25519Sign(botSecret, message) {
   const { privateKey } = getKeyPair(botSecret);
-  const signature = crypto2.sign(null, message, privateKey);
+  const signature = crypto3.sign(null, message, privateKey);
   return signature.toString("hex");
 }
 function verifyWebhookSignature(params) {
@@ -5646,7 +5646,7 @@ function verifyWebhookSignature(params) {
       body
     ]);
     const sigBuffer = Buffer.from(signature, "hex");
-    return crypto2.verify(null, message, publicKey, sigBuffer);
+    return crypto3.verify(null, message, publicKey, sigBuffer);
   } catch {
     return false;
   }
@@ -5854,10 +5854,10 @@ function getHeader(headers, key) {
 }
 
 // node_modules/@tencent-connect/qqbot-nodejs/dist/protocol/utils/upload-cache.js
-var crypto3 = __toESM(require("node:crypto"), 1);
+var crypto4 = __toESM(require("node:crypto"), 1);
 var MAX_CACHE_SIZE = 500;
 function computeFileHash(data) {
-  return crypto3.createHash("md5").update(data).digest("hex");
+  return crypto4.createHash("md5").update(data).digest("hex");
 }
 function buildCacheKey(contentHash, scope, targetId, fileType) {
   return `${contentHash}:${scope}:${targetId}:${fileType}`;
@@ -6822,6 +6822,7 @@ var QQBot = class {
 };
 
 // src/controller.mjs
+var TALK_IDLE_MS = 2 * 60 * 60 * 1e3;
 function fault(code, message) {
   return Object.assign(new Error(message), { code });
 }
@@ -7040,6 +7041,34 @@ var QQClientBridge = class {
     }
     return { released: true };
   }
+  async sendGroup(params) {
+    if (!this.client || this.appId !== params.appId || this.connectionState !== "connected" || params.epoch !== this.epoch) throw fault("QQ_NOT_CONNECTED", "QQ \u8FDE\u63A5\u4E0D\u53EF\u7528\u6216\u5DF2\u66F4\u6362\u3002");
+    if (typeof params.groupId !== "string" || !/^[A-Za-z0-9_-]{1,160}$/.test(params.groupId) || typeof params.requestId !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(params.requestId) || typeof params.text !== "string" || !params.text.trim() || params.text.length > 1800) throw fault("INVALID_GROUP_MESSAGE", "\u4E3B\u52A8\u6D88\u606F\u53C2\u6570\u4E0D\u6B63\u786E\u3002");
+    this.proactiveSends ??= /* @__PURE__ */ new Map();
+    const old = this.proactiveSends.get(params.requestId);
+    if (old) {
+      if (old.appId !== params.appId || old.groupId !== params.groupId || old.text !== params.text) throw fault("GROUP_MESSAGE_CONFLICT", "\u540C\u4E00\u4E3B\u52A8\u6D88\u606F\u8BF7\u6C42\u5DF2\u6709\u4E0D\u540C\u5185\u5BB9\u3002");
+      if (old.result) return old.result;
+      throw fault("QQ_SEND_UNCERTAIN", "\u4E3B\u52A8\u6D88\u606F\u6B63\u5728\u53D1\u9001\u6216\u7ED3\u679C\u4E0D\u786E\u5B9A\uFF0C\u8BF7\u67E5\u770B\u76EE\u6807\u7FA4\u3002");
+    }
+    const bot = this.client, generation = this.generation;
+    const record = { appId: params.appId, groupId: params.groupId, text: params.text };
+    this.proactiveSends.set(params.requestId, record);
+    try {
+      const result = await bot.sendText({ scope: "group", targetId: params.groupId }, params.text);
+      if (this.client !== bot || generation !== this.generation || typeof result?.id !== "string" || !result.id) throw fault("QQ_SEND_UNCERTAIN", "QQ \u672A\u786E\u8BA4\u4E3B\u52A8\u6D88\u606F\u53D1\u9001\u3002");
+      record.result = { sent: true, messageId: result.id, ...typeof result.timestamp === "string" ? { timestamp: result.timestamp } : {} };
+      return record.result;
+    } catch (error) {
+      if (this.client === bot && generation === this.generation && error.httpStatus >= 400 && error.httpStatus < 500) {
+        const code = Number.isSafeInteger(error.bizCode) && error.bizCode > 0 && error.bizCode < 1e10 ? "QQ_API_" + error.bizCode : "QQ_HTTP_" + error.httpStatus;
+        throw fault(code, "QQ \u62D2\u7EDD\u4E3B\u52A8\u6D88\u606F\uFF0C\u8BF7\u68C0\u67E5\u673A\u5668\u4EBA\u6743\u9650\u3001\u7FA4\u6210\u5458\u8D44\u683C\u548C\u53D1\u9001\u914D\u989D\u3002");
+      }
+      throw fault("QQ_SEND_UNCERTAIN", "\u4E3B\u52A8\u6D88\u606F\u53D1\u9001\u7ED3\u679C\u4E0D\u786E\u5B9A\uFF0C\u8BF7\u67E5\u770B\u76EE\u6807\u7FA4\uFF1B\u4E0D\u8981\u81EA\u52A8\u91CD\u53D1\u3002");
+    } finally {
+      if (this.proactiveSends.size > 200) this.proactiveSends.delete(this.proactiveSends.keys().next().value);
+    }
+  }
   async reply(params) {
     if (!this.client || this.appId !== params.appId) throw fault("QQ_NOT_CONNECTED", "QQ \u8FDE\u63A5\u4E0D\u53EF\u7528\u3002");
     if (![params.groupId, params.messageId, params.requestId].every((x) => typeof x === "string" && x.length > 0 && x.length < 200) || typeof params.text !== "string" || !params.text || params.text.length > 1800) throw fault("INVALID_REPLY", "\u7B54\u590D\u53C2\u6570\u4E0D\u6B63\u786E\u3002");
@@ -7087,6 +7116,7 @@ var QQBotFleet = class {
     }
     if (method === "qq/disconnect") return b.disconnect();
     if (method === "qq/reply") return b.reply(params);
+    if (method === "qq/send-group") return b.sendGroup(params);
     if (method === "qq/images") return b.prepareImages(params);
     if (method === "qq/image-chunk") return b.imageChunk(params);
     if (method === "qq/images-release") return b.releaseImages(params);
@@ -7119,7 +7149,7 @@ import_node_readline.default.createInterface({ input: process.stdin }).on("line"
       output({ jsonrpc: "2.0", id: request2.id, error: { code: -32601, message: "Method not found" } });
       return;
     }
-    const code = ["QQ_SECRET_REQUIRED", "QQ_NOT_CONNECTED", "INVALID_REPLY", "REPLY_CONFLICT", "QQ_SEND_UNCERTAIN", "BOT_CONFIG_INVALID", "BOT_APP_DUPLICATE"].includes(error.code) || /^IMAGE_[A-Z_]+$/.test(error.code || "") ? error.code : "QQ_REQUEST_FAILED";
+    const code = ["QQ_SECRET_REQUIRED", "QQ_NOT_CONNECTED", "INVALID_REPLY", "REPLY_CONFLICT", "QQ_SEND_UNCERTAIN", "BOT_CONFIG_INVALID", "BOT_APP_DUPLICATE", "INVALID_GROUP_MESSAGE", "GROUP_MESSAGE_CONFLICT"].includes(error.code) || /^(IMAGE_[A-Z_]+|QQ_API_\d{3,10}|QQ_HTTP_4\d\d)$/.test(error.code || "") ? error.code : "QQ_REQUEST_FAILED";
     output({ jsonrpc: "2.0", id: request2.id, error: { code: -32e3, message: code } });
   }
 });
