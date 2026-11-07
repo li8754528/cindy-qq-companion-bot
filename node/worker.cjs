@@ -2263,7 +2263,7 @@ var require_websocket = __commonJS({
     var http2 = require("http");
     var net = require("net");
     var tls = require("tls");
-    var { randomBytes, createHash: createHash3 } = require("crypto");
+    var { randomBytes, createHash: createHash4 } = require("crypto");
     var { Duplex, Readable } = require("stream");
     var { URL: URL2 } = require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -2944,7 +2944,7 @@ var require_websocket = __commonJS({
           abortHandshake(websocket, socket, "Invalid Upgrade header");
           return;
         }
-        const digest = createHash3("sha1").update(key + GUID).digest("base64");
+        const digest = createHash4("sha1").update(key + GUID).digest("base64");
         if (res.headers["sec-websocket-accept"] !== digest) {
           abortHandshake(websocket, socket, "Invalid Sec-WebSocket-Accept header");
           return;
@@ -3313,7 +3313,7 @@ var require_websocket_server = __commonJS({
     var EventEmitter = require("events");
     var http2 = require("http");
     var { Duplex } = require("stream");
-    var { createHash: createHash3 } = require("crypto");
+    var { createHash: createHash4 } = require("crypto");
     var extension3 = require_extension();
     var PerMessageDeflate2 = require_permessage_deflate();
     var subprotocol2 = require_subprotocol();
@@ -3620,7 +3620,7 @@ var require_websocket_server = __commonJS({
           );
         }
         if (this._state > RUNNING) return abortHandshake(socket, 503);
-        const digest = createHash3("sha1").update(key + GUID).digest("base64");
+        const digest = createHash4("sha1").update(key + GUID).digest("base64");
         const headers = [
           "HTTP/1.1 101 Switching Protocols",
           "Upgrade: websocket",
@@ -6821,8 +6821,15 @@ var QQBot = class {
   }
 };
 
+// src/config.mjs
+var BOT_IDS = ["bot1", "bot2", "bot3", "bot4"];
+var secretKey = (id) => id === "bot1" ? "qq_app_secret" : "qq_app_secret_" + id.slice(3);
+var connectMethod = (id) => id === "bot1" ? "qq/connect" : "qq/connect/" + id.slice(3);
+
 // src/controller.mjs
 var TALK_IDLE_MS = 2 * 60 * 60 * 1e3;
+var DONE = /* @__PURE__ */ new Set(["replied", "failed", "cancelled", "expired", "no_reply", "uncertain"]);
+var STATES = /* @__PURE__ */ new Set([...DONE, "queued", "sending", "waiting", "replying", "reply_rejected", "proactive_sending"]);
 function fault(code, message) {
   return Object.assign(new Error(message), { code });
 }
@@ -6913,7 +6920,14 @@ async function downloadImages(metadata, fetcher = globalThis.fetch) {
   }
 }
 
+// src/delivery-policy.mjs
+var rejectedCodes = /* @__PURE__ */ new Set([340069, 40034005, 40034006, 40034008, 40034009, 40034010, 40034011, 40034024, 40034025, 40034026, 40034027, 40034029, 40034100, 40034101, 40034105, 40034106, 40034127, 40034128, 40054002, 40054003]);
+function rejectedMessage(error, path2) {
+  return error?.name === "ApiError" && error.path === path2 && Number.isInteger(error.httpStatus) && error.httpStatus >= 400 && error.httpStatus < 500 && rejectedCodes.has(error.bizCode) ? { sent: false, outcome: "rejected", code: "QQ_API_" + error.bizCode } : { sent: false, outcome: "uncertain", code: "QQ_SEND_UNCERTAIN" };
+}
+
 // src/qq-client.mjs
+var import_node_crypto = require("node:crypto");
 var quietLogger = { info() {
 }, error() {
 }, warn() {
@@ -6956,6 +6970,8 @@ var QQClientBridge = class {
     if (!/^\d{4,30}$/.test(params.appId) || typeof secret !== "string" || !secret) throw fault("QQ_SECRET_REQUIRED", "\u8BF7\u5728\u63D2\u4EF6\u8BBE\u7F6E\u91CC\u4FDD\u5B58 AppID \u548C AppSecret\u3002");
     const generation = this.generation;
     this.epoch = params.epoch;
+    this.sandbox = params.sandbox === true;
+    this.botId = params.botId || "bot1";
     const bot = this.makeBot({ appId: params.appId, appSecret: secret, intents: 1 << 25, markdownSupport: false, logger: quietLogger, ...params.sandbox ? { baseUrl: "https://sandbox.api.sgroup.qq.com" } : {} });
     this.client = bot;
     this.appId = params.appId;
@@ -6984,11 +7000,12 @@ var QQClientBridge = class {
         }
       }
       if (images.length && [msg.messageId, msg.groupOpenid, msg.senderId].every((x) => typeof x === "string" && x.length > 0 && x.length <= 160)) {
-        const id = (params.botId && params.botId !== "bot1" ? params.botId + ":" : "") + params.appId + ":" + msg.messageId;
-        if (!this.inboundImages.has(id)) this.inboundImages.set(id, { images, groupId: msg.groupOpenid, messageId: msg.messageId, at: Date.now() });
+        const id = JSON.stringify([params.appId, msg.groupOpenid, msg.messageId]);
+        const requestId = "qq:" + (0, import_node_crypto.createHash)("sha256").update(JSON.stringify([this.botId, params.appId, this.sandbox, msg.groupOpenid, msg.messageId])).digest("hex");
+        if (!this.inboundImages.has(id)) this.inboundImages.set(id, { images, requestId, groupId: msg.groupOpenid, messageId: msg.messageId, at: Date.now() });
         if (this.inboundImages.size > 200) this.inboundImages.delete(this.inboundImages.keys().next().value);
       }
-      this.notify("qq/message", { appId: params.appId, kind: "group", rawEventType: msg.rawEventType, senderIsBot: false, groupId: msg.groupOpenid, senderId: msg.senderId, messageId: msg.messageId, text: msg.content, hasAttachments, imageCount: images.length, attachmentCode });
+      this.notify("qq/message", { appId: params.appId, kind: "group", rawEventType: msg.rawEventType, senderIsBot: false, groupId: msg.groupOpenid, senderId: msg.senderId, messageId: msg.messageId, timestamp: msg.timestamp, msgIdx: typeof msg.msgIdx === "string" && msg.msgIdx.trim() && msg.msgIdx.length <= 256 ? msg.msgIdx : void 0, text: msg.content, hasAttachments, imageCount: images.length, attachmentCode });
     });
     this.status("connecting");
     Promise.resolve().then(() => {
@@ -7000,8 +7017,9 @@ var QQClientBridge = class {
     return { connecting: true };
   }
   async prepareImages(params) {
-    const source = this.inboundImages.get(params.requestId);
-    if (!this.client || params.appId !== this.appId || !source || source.groupId !== params.groupId || source.messageId !== params.messageId || params.epoch !== this.epoch || Date.now() - source.at > 6e5) throw fault("IMAGE_EXPIRED", "\u56FE\u7247\u6D88\u606F\u5DF2\u8FC7\u671F\u6216\u8FDE\u63A5\u5DF2\u66F4\u6362\uFF0C\u8BF7\u5728\u7FA4\u91CC\u53D1\u65B0\u7684\u56FE\u7247\u63D0\u95EE\u3002");
+    const cacheKey = JSON.stringify([params.appId, params.groupId, params.messageId]);
+    const source = this.inboundImages.get(cacheKey);
+    if (!this.client || params.appId !== this.appId || !source || source.requestId !== params.requestId || source.groupId !== params.groupId || source.messageId !== params.messageId || params.epoch !== this.epoch || Date.now() - source.at > 6e5) throw fault("IMAGE_EXPIRED", "\u56FE\u7247\u6D88\u606F\u5DF2\u8FC7\u671F\u6216\u8FDE\u63A5\u5DF2\u66F4\u6362\uFF0C\u8BF7\u5728\u7FA4\u91CC\u53D1\u65B0\u7684\u56FE\u7247\u63D0\u95EE\u3002");
     if (this.imageTransfer) {
       if (this.imageTransfer.requestId === params.requestId) return this.imageDescriptor();
       throw fault("IMAGE_BUSY", "\u6B63\u5728\u5904\u7406\u53E6\u4E00\u6761\u56FE\u7247\u6D88\u606F\u3002");
@@ -7014,7 +7032,7 @@ var QQClientBridge = class {
     flight.promise = (async () => {
       const images = await this.loadImages(source.images);
       if (generation !== this.generation || !this.client) throw fault("IMAGE_EXPIRED", "\u8FDE\u63A5\u5DF2\u66F4\u6362\uFF0C\u8BF7\u53D1\u9001\u65B0\u7684\u56FE\u7247\u63D0\u95EE\u3002");
-      this.imageTransfer = { id: generation + ":" + ++this.transferSequence, requestId: params.requestId, images };
+      this.imageTransfer = { id: generation + ":" + ++this.transferSequence, requestId: params.requestId, cacheKey, images };
       return this.imageDescriptor();
     })();
     this.imageFlight = flight;
@@ -7036,7 +7054,7 @@ var QQClientBridge = class {
   }
   releaseImages(params) {
     if (this.imageTransfer?.id === params.transferId) {
-      this.inboundImages.delete(this.imageTransfer.requestId);
+      this.inboundImages.delete(this.imageTransfer.cacheKey);
       this.imageTransfer = null;
     }
     return { released: true };
@@ -7069,37 +7087,46 @@ var QQClientBridge = class {
       if (this.proactiveSends.size > 200) this.proactiveSends.delete(this.proactiveSends.keys().next().value);
     }
   }
-  async reply(params) {
-    if (!this.client || this.appId !== params.appId) throw fault("QQ_NOT_CONNECTED", "QQ \u8FDE\u63A5\u4E0D\u53EF\u7528\u3002");
-    if (![params.groupId, params.messageId, params.requestId].every((x) => typeof x === "string" && x.length > 0 && x.length < 200) || typeof params.text !== "string" || !params.text || params.text.length > 1800) throw fault("INVALID_REPLY", "\u7B54\u590D\u53C2\u6570\u4E0D\u6B63\u786E\u3002");
-    const old = this.sent.get(params.requestId);
-    if (old) {
-      if (old.text !== params.text || old.groupId !== params.groupId || old.messageId !== params.messageId) throw fault("REPLY_CONFLICT", "\u540C\u4E00\u8BF7\u6C42\u5DF2\u6709\u4E0D\u540C\u7B54\u590D\u3002");
-      return old.result;
+  reply(params) {
+    return this.sendFinal(params, "reply");
+  }
+  finalActive(params) {
+    return this.sendFinal(params, "active");
+  }
+  async sendFinal(params, stage) {
+    if (!this.client || this.appId !== params.appId || this.connectionState !== "connected" || params.epoch !== this.epoch || !!params.sandbox !== !!this.sandbox) throw fault("QQ_NOT_CONNECTED", "\u539F\u673A\u5668\u4EBA\u8FDE\u63A5\u5DF2\u5931\u6548\uFF0C\u672A\u53D1\u9001\u3002");
+    if (![params.groupId, params.messageId, params.requestId].every((x) => typeof x === "string" && x.length > 0 && x.length <= 160) || typeof params.text !== "string" || !params.text.trim() || params.text.length > 1800 || params.msgIdx !== void 0 && (typeof params.msgIdx !== "string" || !params.msgIdx || params.msgIdx.length > 256)) throw fault("INVALID_REPLY", "\u539F\u8BF7\u6C42\u6216\u6700\u7EC8\u7B54\u6848\u65E0\u6548\u3002");
+    this.finalRecords ??= /* @__PURE__ */ new Map();
+    const signature = JSON.stringify([params.appId, !!params.sandbox, params.groupId, params.messageId, params.text, params.msgIdx]);
+    let record = this.finalRecords.get(params.requestId);
+    if (record && record.signature !== signature) throw fault("FINAL_CONFLICT", "\u540C\u4E00\u8BF7\u6C42\u5DF2\u6709\u4E0D\u540C\u6700\u7EC8\u7B54\u6848\u3002");
+    if (!record) {
+      if (stage !== "reply") throw fault("FINAL_STATE_REQUIRED", "\u6CA1\u6709\u672C\u6B21\u660E\u786E\u88AB\u52A8\u5931\u8D25\u8BB0\u5F55\uFF0C\u672A\u4E3B\u52A8\u53D1\u9001\u3002");
+      if (this.finalRecords.size >= 200) {
+        for (const [key, old] of this.finalRecords) if (old.reply?.sent || old.active?.sent || old.active?.outcome === "rejected") {
+          this.finalRecords.delete(key);
+          if (this.finalRecords.size < 200) break;
+        }
+      }
+      if (this.finalRecords.size >= 200) throw fault("FINAL_INBOX_FULL", "\u53D1\u9001\u8BB0\u5F55\u5DF2\u6EE1\uFF0C\u672A\u5220\u9664\u672A\u77E5\u56DE\u6267\u3002");
+      record = { signature };
+      this.finalRecords.set(params.requestId, record);
     }
-    if (this.sending.has(params.requestId)) throw fault("QQ_SEND_UNCERTAIN", "\u540C\u4E00\u7B54\u590D\u6B63\u5728\u53D1\u9001\u6216\u7ED3\u679C\u4E0D\u786E\u5B9A\u3002");
-    const bot = this.client;
-    const generation = this.generation;
-    this.sending.set(params.requestId, true);
+    if (stage === "active" && record.reply?.outcome !== "rejected") throw fault("FINAL_STATE_REQUIRED", "\u88AB\u52A8\u7ED3\u679C\u672A\u660E\u786E\u62D2\u7EDD\uFF0C\u672A\u4E3B\u52A8\u8865\u53D1\u3002");
+    if (record[stage]) return record[stage];
+    record[stage] = { sent: false, outcome: "uncertain", code: "QQ_SEND_UNCERTAIN" };
+    const bot = this.client, generation = this.generation;
     try {
-      const result = await bot.sendText({ scope: "group", targetId: params.groupId, msgId: params.messageId }, params.text);
-      if (this.client !== bot || generation !== this.generation) throw fault("QQ_SEND_UNCERTAIN", "\u8FDE\u63A5\u5DF2\u66F4\u6362\uFF0C\u53D1\u9001\u7ED3\u679C\u4E0D\u786E\u5B9A\u3002");
-      const receipt = { sent: true, messageId: result?.id || "" };
-      this.sent.set(params.requestId, { ...params, result: receipt });
-      if (this.sent.size > 200) this.sent.delete(this.sent.keys().next().value);
-      return receipt;
-    } catch {
-      throw fault("QQ_SEND_UNCERTAIN", "QQ \u672A\u786E\u8BA4\u53D1\u9001\uFF0C\u8BF7\u68C0\u67E5\u539F\u7FA4\u3002");
-    } finally {
-      if (this.sent.has(params.requestId)) this.sending.delete(params.requestId);
+      const result = await bot.send({ target: { scope: "group", targetId: params.groupId, ...stage === "reply" ? { msgId: params.messageId } : {} }, msgType: 0, content: params.text, ...params.msgIdx ? { messageReference: { message_id: params.msgIdx } } : {}, extra: { msg_seq: 1 } });
+      if (this.client !== bot || generation !== this.generation || typeof result?.id !== "string" || !result.id.trim() || result.id.length > 512) return record[stage];
+      record[stage] = { sent: true, messageId: result.id, ...typeof result.timestamp === "string" ? { timestamp: result.timestamp } : {} };
+      return record[stage];
+    } catch (error) {
+      if (this.client === bot && generation === this.generation) record[stage] = rejectedMessage(error, "/v2/groups/" + params.groupId + "/messages");
+      return record[stage];
     }
   }
 };
-
-// src/config.mjs
-var BOT_IDS = ["bot1", "bot2", "bot3", "bot4"];
-var secretKey = (id) => id === "bot1" ? "qq_app_secret" : "qq_app_secret_" + id.slice(3);
-var connectMethod = (id) => id === "bot1" ? "qq/connect" : "qq/connect/" + id.slice(3);
 
 // src/qq-fleet.mjs
 var QQBotFleet = class {
@@ -7116,6 +7143,7 @@ var QQBotFleet = class {
     }
     if (method === "qq/disconnect") return b.disconnect();
     if (method === "qq/reply") return b.reply(params);
+    if (method === "qq/final-active") return b.finalActive(params);
     if (method === "qq/send-group") return b.sendGroup(params);
     if (method === "qq/images") return b.prepareImages(params);
     if (method === "qq/image-chunk") return b.imageChunk(params);
@@ -7149,7 +7177,7 @@ import_node_readline.default.createInterface({ input: process.stdin }).on("line"
       output({ jsonrpc: "2.0", id: request2.id, error: { code: -32601, message: "Method not found" } });
       return;
     }
-    const code = ["QQ_SECRET_REQUIRED", "QQ_NOT_CONNECTED", "INVALID_REPLY", "REPLY_CONFLICT", "QQ_SEND_UNCERTAIN", "BOT_CONFIG_INVALID", "BOT_APP_DUPLICATE", "INVALID_GROUP_MESSAGE", "GROUP_MESSAGE_CONFLICT"].includes(error.code) || /^(IMAGE_[A-Z_]+|QQ_API_\d{3,10}|QQ_HTTP_4\d\d)$/.test(error.code || "") ? error.code : "QQ_REQUEST_FAILED";
+    const code = ["QQ_SECRET_REQUIRED", "QQ_NOT_CONNECTED", "INVALID_REPLY", "REPLY_CONFLICT", "QQ_SEND_UNCERTAIN", "BOT_CONFIG_INVALID", "BOT_APP_DUPLICATE", "INVALID_GROUP_MESSAGE", "GROUP_MESSAGE_CONFLICT", "FINAL_STATE_REQUIRED", "FINAL_CONFLICT", "FINAL_INBOX_FULL"].includes(error.code) || /^(IMAGE_[A-Z_]+|QQ_API_\d{3,10}|QQ_HTTP_4\d\d)$/.test(error.code || "") ? error.code : "QQ_REQUEST_FAILED";
     output({ jsonrpc: "2.0", id: request2.id, error: { code: -32e3, message: code } });
   }
 });

@@ -4,6 +4,7 @@ import http from "node:http";
 import { MessageApi, ApiClient } from "@tencent-connect/qqbot-nodejs/protocol";
 import { QQClientBridge } from "../src/qq-client.mjs";
 import { QQBotFleet } from "../src/qq-fleet.mjs";
+import { rejectedMessage } from '../src/delivery-policy.mjs';
 function setup() {
   const bots = [], bridge = new QQClientBridge(() => {
     const handlers = {}, bot = { handlers, calls: [], on(name, fn) { handlers[name] = fn; }, start() {}, stop() {},
@@ -13,6 +14,11 @@ function setup() {
   bridge.connect({ appId: "23456", epoch: "epoch" }, "fake-secret"); bots[0].handlers.ready(); return { bots, bridge };
 }
 const send = { appId: "23456", epoch: "epoch", groupId: "group_2", requestId: "outbound-1", text: "公告" };
+test('actual pinned SDK transmits group reference independently of msg_id and exposes structured rejection',async()=>{
+  const requests=[];const server=http.createServer(async(req,res)=>{let text='';for await(const c of req)text+=c;requests.push(JSON.parse(text));res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({code:40034005,message:'expired'}));});
+  await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  try{const api=new MessageApi(new ApiClient({baseUrl:'http://127.0.0.1:'+server.address().port}),{async getAccessToken(){return 'fixture-token';}},{markdownSupport:false});let failure;try{await api.sendRaw('group','group',{appId:'12345',clientSecret:'fixture-secret'},{msg_type:0,content:'final',msg_id:'ROBOT_original',msg_seq:1,message_reference:{message_id:'REFIDX_original'}});}catch(e){failure=e;}assert.equal(rejectedMessage(failure,'/v2/groups/group/messages').outcome,'rejected');assert.equal(requests.length,1);assert.deepEqual(requests[0],{msg_type:0,content:'final',msg_id:'ROBOT_original',msg_seq:1,message_reference:{message_id:'REFIDX_original'}});}finally{await new Promise(r=>server.close(r));}
+});
 test("worker proactive bridge sends without passive identifiers and protects its request key", async () => {
   const { bots, bridge } = setup(); const result = await bridge.sendGroup(send);
   assert.deepEqual(bots[0].calls, [{ target: { scope: "group", targetId: "group_2" }, text: "公告" }]);
