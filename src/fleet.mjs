@@ -36,7 +36,7 @@ export class BridgeFleet {
   async stopped() { for (const [id,b] of this.controllers) { await b.status("error", "NODE_STOPPED"); this.schedule(id, true); } this.changed(); }
   repairAllowed(id) {
     const b = this.controllers.get(id), desired = this.desired.bots.find(x => x.id === id);
-    return b?.cfg.enabled && desired?.enabled && desired.appId === b.cfg.appId && desired.targetId === b.cfg.targetId && !!desired.sandbox === b.cfg.sandbox;
+    return b?.cfg.enabled && desired?.enabled && desired.appId === b.cfg.appId && !!desired.sandbox === b.cfg.sandbox;
   }
   schedule(id, immediately = false) {
     const b = this.controllers.get(id);
@@ -84,7 +84,7 @@ export class BridgeFleet {
       // Disabling has already invalidated the runtime generation. Late receipts
       // may finish, but cannot restore removed jobs or dispatch a new message.
       b.runtimeGeneration++;
-      b.jobs = []; b.histories = []; b.groups = []; await b.save();
+      b.histories = []; b.groups = []; await b.save();
       this.recovery.delete(id); this.lastRecovery.delete(id); this.changed(); return this.snapshot();
     });
     this.configuring = run.catch(() => {}); return run;

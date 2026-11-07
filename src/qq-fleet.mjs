@@ -13,6 +13,7 @@ export class QQBotFleet {
     }
     if (method === "qq/disconnect") return b.disconnect();
     if (method === "qq/reply") return b.reply(params);
+    if (method === 'qq/final-active') return b.finalActive(params);
     if (method === "qq/send-group") return b.sendGroup(params);
     if (method === "qq/images") return b.prepareImages(params);
     if (method === "qq/image-chunk") return b.imageChunk(params);

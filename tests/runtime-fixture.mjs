@@ -1,0 +1,33 @@
+import fs from 'node:fs';
+import vm from 'node:vm';
+import {webcrypto} from 'node:crypto';
+export const route={agentKind:'codex',providerId:'local',model:'model-one',effort:'high',fastMode:false};
+export const group=(id='group',projectId='C:/project',selected=route)=>({groupOpenid:id,projectId,route:selected});
+export const configuration={schema:3,bots:[{id:'bot1',name:'技术答疑',appId:'12345',enabled:true,paused:false,groups:[group(),group('group2')]},{id:'bot2',name:'第二机器人',appId:'67890',enabled:true,paused:false,groups:[group()]}]};
+export async function runtime(options={}){
+  const disk=options.disk||new Map(),tasks=options.tasks||new Map(),receipts=options.receipts||new Map(),calls=[],results=[],channels=[],health=new Map(),runs=options.runs||new Map(),clock={now:options.now||Date.now()},failures={};let handler,config=structuredClone(options.config||configuration),sequence=tasks.size;
+  class ClockDate extends Date {static now(){return clock.now;}}
+  const fail=code=>Object.assign(new Error('fixture'),{code});
+  const cindy={onHostMessage(fn){handler=fn;},async send(value){results.push(value);},
+    async fs(req){if(failures.fs?.(req))return {ok:false,errorCode:'WRITE_FAILED'};if(req.op==='read')return disk.has(req.path)?{ok:true,content:disk.get(req.path)}:{ok:false,errorCode:'NOT_FOUND'};disk.set(req.path,req.content);return {ok:true};},
+    async pickModel(){return {ok:true,route:{...route,effort:'low'}};},
+    targets:{async list(req){calls.push({kind:'list',req});return {targets:[{kind:'project',id:'C:/project',label:'业务项目'}]};},async resolve(req){calls.push({kind:'resolve',req});if(failures.resolve)throw fail(failures.resolve);return req.target;},
+      async send(req){calls.push({kind:'project',req});if(failures.targetSend)throw fail(failures.targetSend);if(receipts.has(req.requestKey))return receipts.get(req.requestKey);const task={taskId:'member-'+ ++sequence,status:'active',revision:1,route:req.route,workingDir:req.target.id};tasks.set(task.taskId,task);const value={accepted:true,taskId:task.taskId,delivery:'queue',target:req.target,status:'accepted'};receipts.set(req.requestKey,value);await failures.afterProject?.(value);return value;},
+      async get(req){calls.push({kind:'target-get',req});return receipts.has(req.requestKey)?{found:true,...receipts.get(req.requestKey)}:{found:false};}},
+    tasks:{async capabilities(){return {operations:['get','send','setModel','getRun'],messageAttachments:{kinds:['image']},...options.capabilities};},async get(req){calls.push({kind:'task-get',req});if(failures.get)throw fail(failures.get);if(!tasks.has(req.taskId))throw fail('TASK_NOT_FOUND');return tasks.get(req.taskId);},
+      async setModel(req){calls.push({kind:'set-model',req});const task=tasks.get(req.taskId);if(!task)throw fail('TASK_NOT_FOUND');task.route=req.route;return {status:'unchanged',task};},
+      async send(req){calls.push({kind:'task',req});if(failures.taskSend)throw fail(failures.taskSend);const run={runId:'run-'+req.requestKey,taskId:req.taskId,status:'queued'};runs.set(run.runId,run);return run;},async getRun(req){calls.push({kind:'get-run',req});if(failures.getRun)throw fail(failures.getRun);await failures.beforeGetRun?.(req);return runs.get(req.runId);}},
+    node:{async request(req){calls.push({kind:'node',req});if(req.method.startsWith('qq/connect')){const value={botId:req.params.botId,state:'connected',appId:req.params.appId,epoch:req.params.epoch};health.set(req.params.botId,value);queueMicrotask(()=>handler({type:'event',name:'node-notification',method:'qq/status',params:value}));return {ok:true,result:{connecting:true}};}if(req.method==='qq/images')return {ok:true,result:{transferId:'image',images:[{name:'image.png',bytes:68}]}};if(req.method==='qq/image-chunk')return {ok:true,result:{offset:0,nextOffset:68,done:true,base64:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aO5kAAAAASUVORK5CYII='}};if(req.method==='qq/status')return {ok:true,result:health.get(req.params.botId)||{state:'idle'}};if(failures.node)return failures.node(req);return {ok:true,result:{sent:true,messageId:'answer-'+calls.length}};}},
+  };
+  if(options.noPicker)delete cindy.pickModel;
+  const sandbox={cindy,crypto:webcrypto,TextEncoder,Date:ClockDate,queueMicrotask,setInterval(){},setTimeout(fn){queueMicrotask(fn);},BroadcastChannel:class{constructor(){channels.push(this);}postMessage(value){results.push(value);}},async fetch(path,opts){return {ok:true,async json(){if(path==='/kv'){if(opts?.method==='PUT')config=JSON.parse(opts.body);return config;}if(path==='/secrets')return [{key:'qq_app_secret',saved:true},{key:'qq_app_secret_2',saved:true}];return {};}};}};
+  vm.runInNewContext(fs.readFileSync(new URL('../main.js',import.meta.url),'utf8'),sandbox);let counter=0;
+  async function tool(name,args={}){const callId='tool-'+ ++counter;await handler({type:'tool-call',tool:name,args,callId});return results.find(x=>x.callId===callId);}
+  const first=await tool('get_status',{session_context:{session_id:'owner'}});
+  if(!first.ok)throw new Error('get_status failed: '+first.errorCode);
+  if(!first.result?.bootError)for(const b of first.result.bots)await handler({type:'event',name:'node-notification',method:'qq/status',params:{botId:b.id,state:'connected',epoch:calls.findLast(c=>c.kind==='node'&&c.req.params.botId===b.id&&c.req.method.startsWith('qq/connect'))?.req.params.epoch}});
+  async function receive(id,text='问题',extra={}){const botId=extra.botId||'bot1';await handler({type:'event',name:'node-notification',method:'qq/message',params:{botId,appId:botId==='bot1'?'12345':'67890',kind:'group',rawEventType:'GROUP_AT_MESSAGE_CREATE',messageId:id,groupId:'group',senderId:'person',timestamp:new Date(clock.now).toISOString(),text,...extra}});return (await tool('get_status',{session_context:{session_id:'owner'}})).result.bots.find(b=>b.id===botId).jobs.find(j=>j.id===calls.filter(c=>c.kind==='project'||c.kind==='task').at(-1)?.req.requestKey);}
+  async function reply(job,text='FINAL'){return tool('reply_to_qq',{request_id:job.id,text,session_context:{session_id:job.taskId}});}
+  async function ui(action,extra={}){const id='ui-'+ ++counter;await channels[0].onmessage({data:{type:'ui-request',id,action,botId:'bot1',...extra}});return results.find(x=>x.type==='ui-response'&&x.id===id);}
+  return {disk,tasks,receipts,runs,calls,results,clock,failures,receive,reply,tool,ui,first,setConfig(value){config=structuredClone(value);},config:()=>config};
+}

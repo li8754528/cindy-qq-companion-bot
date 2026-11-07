@@ -1,28 +1,25 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QQ 群伙伴</title><link rel="stylesheet" href="/settings.css"></head>
 <body><main>
-<header><h1>QQ 群伙伴</h1><p class="muted">群里 @ 提问，由伙伴接着回答。</p></header>
-<div id="health-alert" class="health-alert" role="alert" hidden><strong>插件自检发现问题</strong><p id="health-message"></p></div>
-<div class="section-heading"><div><h2>我的机器人</h2><span id="fleet-summary" class="muted">正在读取状态</span></div><div class="actions"><button id="self-check" type="button">重新自检</button><button id="add-bot" type="button" class="primary">＋ 添加机器人</button></div></div>
-<nav id="bots" aria-label="选择要配置的机器人"></nav>
-<p id="feedback" role="status" aria-live="polite"></p>
-<div id="empty-state" class="notice" hidden><strong>还没有机器人</strong><p>点击“添加机器人”，填写 QQ 开放平台账号后即可开始。最多添加 4 个。</p></div>
+<header><h1>QQ 群伙伴</h1><p class="muted">按群配置项目和模型，群成员 @ 即可独立续聊。</p></header>
+<div id="health-alert" class="health-alert" role="alert" hidden><strong>插件需要处理</strong><p id="health-message"></p></div>
+<div class="section-heading"><div><h2>我的机器人</h2><span id="fleet-summary" class="muted">读取中</span></div><div class="actions"><button id="self-check">重新自检</button><button id="add-bot" class="primary">＋ 添加机器人</button></div></div>
+<nav id="bots" aria-label="选择机器人"></nav><p id="feedback" role="status" aria-live="polite"></p>
+<div id="empty-state" class="notice" hidden>还没有机器人，点击“添加机器人”开始。</div>
 <div id="bot-editor" hidden>
-<section aria-labelledby="credentials"><div class="section-heading"><h2 id="credentials">账号与凭证</h2><button id="remove-bot" type="button" class="danger">删除此机器人</button></div>
-<label for="bot-name">机器人名称</label><input id="bot-name" maxlength="60" placeholder="例如：技术答疑">
-<label for="appid">AppID</label><input id="appid" inputmode="numeric" autocomplete="off" placeholder="QQ 开放平台中的 AppID">
-<label for="secret">AppSecret <span id="secret-state" class="muted">读取状态中</span></label><input id="secret" type="password" autocomplete="new-password" placeholder="已保存时留空；填写可替换">
-<div class="actions"><button id="save-secret" type="button">保存凭证</button><a href="https://q.qq.com/">QQ 开放平台 ↗</a></div>
-<p class="muted">凭证由 Cindy 加密保存。补齐账号与凭证后保存即可自动连接；主动暂停会保留。</p>
-<label class="check"><input id="sandbox" type="checkbox">使用 QQ 沙箱环境</label></section>
-<section aria-labelledby="routing"><div class="section-heading"><h2 id="routing">回答伙伴</h2><button id="refresh-targets" type="button">刷新伙伴</button></div>
-<p class="muted">头像与名字共用一个单选框。切换即保存；账号字段通过下方按钮保存。</p>
-<div id="partners" class="partners" role="radiogroup" aria-label="选择回答伙伴"></div><p id="routing-state" class="muted"></p>
-<div class="notice"><strong>所有群内 @ 都可提问</strong><p>未选择伙伴时，每条问题在对话中新开一个会话，使用系统辅助模型。选择伙伴后沿用该伙伴的模型和权限。宿主未提供原头像时显示名称头像。</p></div>
-<div class="actions"><button id="connect" type="button" class="primary">保存并连接</button><button id="save-config" type="button">保存配置</button><button id="pause" type="button">暂停此机器人</button></div></section>
-<section><div class="section-heading"><h2>运行与连续会话</h2><button id="refresh" type="button">刷新状态</button></div><p id="connection" class="status-pill">正在自检</p><p id="history-state" class="muted"></p>
-<p class="muted">普通 @ 一次性回答，插件不保存问答正文。先发送 /talk 或 /talk 问题可开启连续会话，该人在同一个群里继续 @ 即可追问；连续 2 小时无消息或答复后结束。不同机器人、群、发言人和伙伴分别记录会话，最多保留 8 轮。Cindy 自身的对话仍按宿主规则保存。</p><div id="jobs"></div>
-<details><summary>管理记录与凭证</summary><div class="actions"><button id="clear-history" type="button">结束本机器人的连续会话</button><button id="clear-secret" type="button">清除凭证并暂停</button></div><p class="muted">结束全部连续会话并清理插件缓存，Cindy 对话保留。删除机器人会停止连接、清除该机器人的凭证和插件记录。</p></details></section>
+<section><div class="section-heading"><h2>账号与凭证</h2><button id="remove-bot" class="danger">删除此机器人</button></div>
+<label for="bot-name">机器人名称</label><input id="bot-name" maxlength="60">
+<label for="appid">AppID</label><input id="appid" inputmode="numeric" autocomplete="off">
+<label for="secret">AppSecret <span id="secret-state" class="muted"></span></label><input id="secret" type="password" autocomplete="new-password" placeholder="已保存时留空；填写可替换">
+<div class="actions"><button id="save-secret">保存凭证</button><a href="https://q.qq.com/">QQ 开放平台 ↗</a></div>
+<label class="check"><input id="sandbox" type="checkbox">使用 QQ 沙箱环境</label>
+<div class="actions"><button id="connect" class="primary">保存并连接</button><button id="save-config">保存配置</button><button id="pause">暂停此机器人</button></div></section>
+<section><div class="section-heading"><h2>群项目与模型</h2><button id="refresh-projects">刷新项目</button></div>
+<p class="muted">先在群内 @ 一次，群标识会显示在这里。每个群都需选择项目及模型与推理强度；旧伙伴不会自动成为项目。</p><div id="groups"></div></section>
+<section><div class="section-heading"><h2>运行与等待</h2><button id="refresh">刷新状态</button></div><p id="connection" class="status-pill"></p><p id="history-state" class="muted"></p>
+<p class="muted">仍需 @，无需 /talk。同一成员在同一群使用独立任务，两小时无有效互动后下次 @ 新建。最终答案先回复原消息，明确失败后主动补发一次；结果不确定不会补发。</p>
+<div id="jobs"></div>
+<details><summary>管理会话与凭证</summary><div class="actions"><button id="clear-history">结束连续会话</button><button id="clear-secret">清除凭证并暂停</button></div><p class="muted">结束会话只影响下一次 @，Cindy 原任务和历史保留。发送记录不被清空。</p></details></section>
 </div>
-<details><summary>图片与收发限制</summary><p>支持 PNG/JPEG/WebP，每条最多 4 张，每张不超过 5 MiB，回群答复为文字。每个机器人同时处理 1 条，最多排队 12 条，答复最多 1800 字符。</p><p>发送结果不确定时不会重发。电脑需保持 Cindy 运行且联网，进群与回复限制以 QQ 开放平台为准。</p></details>
+<details><summary>等待答案与收发限制</summary><p>每机器人同时处理一条，最多排队十二条。首条项目请求没有原生 runId；长时间未调用最终答复工具时，可以点击“让其他成员继续”。本请求不重投、不取消，迟到最终答案仍可回原群，同一会话仍等待原请求。</p><p>续聊有 runId 时，仅根据宿主原生终态释放排队位置，不以最后一条文本猜完成。支持 PNG/JPEG/WebP，最多四张、每张五 MiB；最终答案最多1800字符。有引用索引时带原生引用；尚不承诺真正 @ 提醒。</p></details>
 </main><script src="/settings.js"></script></body></html>

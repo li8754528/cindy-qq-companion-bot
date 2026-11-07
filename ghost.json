@@ -3,7 +3,7 @@
   "minCindyVersion": "0.1.124",
   "id": "qq-companion-bot",
   "name": "QQ 群伙伴",
-  "description": "多个官方 QQ 群机器人回答群内 @，普通问答单次回应，/talk 开启本人两小时续聊；保留主人主动群发。",
+  "description": "按群选择项目、模型与推理强度；群成员 @ 即独立续聊，两小时无有效互动后新建。最终答案先回复原消息，明确拒绝后主动补发一次。",
   "whenToUse": "主人要主动给 QQ 群发通知或文字消息、回复通过 QQ 群机器人转交的问题、查看连接状态和发送回执时使用。",
   "version": "1.6.1",
   "kind": "chip",
@@ -82,7 +82,7 @@
     },
     {
       "name": "get_question",
-      "description": "查看本次 QQ 请求摘要及状态；只能由实际接收该请求的伙伴会话调用。",
+      "description": "仅接收原QQ问题的任务可查看本请求状态；不读取其他成员历史。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -98,7 +98,7 @@
     },
     {
       "name": "reply_to_qq",
-      "description": "将文字答复发送到请求原来的 QQ 群，使用该机器人的连接并关联原消息。仅接收该问题的伙伴会话可调用；主人须已启用此机器人。只能回复一次；发送结果不确定时不要重试。",
+      "description": "只接受实际接收原问题的任务交付唯一最终答案。先回复原消息，可信明确拒绝后主动发送同一答案到原机器人原群一次；失败或不确定即终止，不得换编号重试。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -170,7 +170,7 @@
       {
         "dir": "manual/quick-start",
         "name": "quick-start",
-        "description": "QQ 机器人配置、普通 @ 单次答复、/talk 两小时续聊、主动群发与连接恢复。"
+        "description": "按群项目与模型配置、成员独立两小时续聊、最终答案失败兜底、等待与连接恢复。"
       }
     ]
   }

@@ -3,10 +3,23 @@ import assert from "node:assert/strict";
 import {imageURL, imageMetadata, downloadImages, MAX_IMAGE_BYTES} from "../src/images.mjs";
 import {QQClientBridge} from "../src/qq-client.mjs";
 import {collectImages} from "../src/image-transfer.mjs";
+import {BridgeController} from '../src/controller.mjs';
+import {EventEmitter} from 'node:events';
+import {group} from './runtime-fixture.mjs';
+import {createHash} from 'node:crypto';
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aO5kAAAAASUVORK5CYII=", "base64");
 const url = "https://gchat.qpic.cn/gchatpic_new/image";
 const metadata = [{url}];
 const attachment = {url,content_type:"image/png",size:png.length};
+test('actual controller hashed request identity retrieves bytes from the QQ worker original-message cache',async()=>{
+  const bot=new EventEmitter();bot.start=async()=>bot.emit('ready');bot.stop=()=>{};let controller,pending,submission;
+  const worker=new QQClientBridge(()=>bot,(method,p)=>{if(method==='qq/message')pending=controller.receive(p);},async()=>[{name:'real-image.png',buffer:png}]);
+  const node=async(method,p)=>{if(method==='qq/connect')return worker.connect(p,'fixture-secret');if(method==='qq/images')return worker.prepareImages(p);if(method==='qq/image-chunk')return worker.imageChunk(p);if(method==='qq/images-release')return worker.releaseImages(p);return {};};
+  controller=new BridgeController({botId:'bot1',read:async()=>null,write:async()=>{},resolve:async()=>{},imageSupport:async()=>true,node,images:(job,epoch)=>collectImages(node,job,epoch),send:async params=>{submission=params;return {accepted:true,taskId:'task'};}});
+  await controller.init();await controller.configure({appId:'12345',enabled:true,groups:[group()]});await controller.status('connected');
+  bot.emit('message',{}, {kind:'group',rawEventType:'GROUP_AT_MESSAGE_CREATE',groupOpenid:'group',senderId:'sender',messageId:'original-qq-id',timestamp:new Date().toISOString(),content:'解释图片',attachments:[attachment]});await pending;
+  assert.match(controller.jobs[0].id,/^qq:[a-f0-9]{64}$/);assert.equal(controller.jobs[0].state,'waiting');assert.deepEqual(Buffer.from(submission.attachments[0].base64,'base64'),png);assert.equal(worker.inboundImages.size,0);
+});
 test("attachment metadata only permits supported formats, count and trusted QQ HTTPS URLs",()=>{
   assert.equal(imageMetadata([attachment]).length,1);
   for(const u of ["http://gchat.qpic.cn/a","https://localhost/a","https://127.0.0.1/a","file:///a","https://gchat.qpic.cn.attacker.test/a","https://user:pass@gchat.qpic.cn/a","https://gchat.qpic.cn:444/a"]){assert.throws(()=>imageURL(u),e=>e.code==="IMAGE_URL_REJECTED");}
@@ -20,7 +33,7 @@ test("size limit is enforced on the stream even without a content-length",async(
 test("expired URLs, false image declarations and fetch errors return fixed safe failures",async()=>{await assert.rejects(downloadImages(metadata,async()=>new Response("gone",{status:403})),e=>e.code==="IMAGE_DOWNLOAD_FAILED");await assert.rejects(downloadImages(metadata,async()=>new Response("<html>not an image</html>")),e=>e.code==="IMAGE_FORMAT_UNSUPPORTED");await assert.rejects(downloadImages(metadata,async()=>{throw new Error("rkey=PRIVATE_URL_TOKEN");}),e=>e.code==="IMAGE_DOWNLOAD_FAILED"&&!e.message.includes("PRIVATE_URL_TOKEN"));});
 function sdkBridge(load){let bot;const messages=[];const bridge=new QQClientBridge(()=>{bot={handlers:{},on(n,fn){this.handlers[n]=fn;},start(){},stop(){}};return bot;},(method,params)=>messages.push({method,params}),load);bridge.connect({appId:"12345",epoch:"epoch"},"fake-secret");return {bridge,bot,messages};}
 const event={kind:"group",rawEventType:"GROUP_AT_MESSAGE_CREATE",groupOpenid:"group",senderId:"member",messageId:"in",content:"",attachments:[attachment]};
-const params={appId:"12345",requestId:"12345:in",groupId:"group",messageId:"in",epoch:"epoch"};
+const params={appId:"12345",requestId:'qq:'+createHash('sha256').update(JSON.stringify(['bot1','12345',false,'group','in'])).digest('hex'),groupId:"group",messageId:"in",epoch:"epoch"};
 test("SDK image metadata stays in worker; chunked transport forwards exact bytes and releases memory",async()=>{const large=Buffer.concat([png,Buffer.alloc(800*1024+1,23)]);let downloads=0;const {bridge,bot,messages}=sdkBridge(async()=>{downloads++;return [{buffer:large,name:"qq-image-1.png"}];});bot.handlers.message({},event);assert.equal(messages.at(-1).params.imageCount,1);assert.ok(!JSON.stringify(messages).includes("qpic.cn"));const node=async(method,args)=>{let result;if(method==="qq/images")result=await bridge.prepareImages(args);else if(method==="qq/image-chunk")result=bridge.imageChunk(args);else if(method==="qq/images-release")result=bridge.releaseImages(args);assert.ok(Buffer.byteLength(JSON.stringify(result))<1024*1024);return result;};const images=await collectImages(node,{id:params.requestId,appId:params.appId,groupId:params.groupId,messageId:params.messageId,imageCount:1},"epoch");assert.deepEqual(Buffer.from(images[0].base64,"base64"),large);assert.equal(downloads,1);assert.equal(bridge.imageTransfer,null);assert.equal(bridge.inboundImages.size,0);});
 test("arbitrary groups or request identifiers cannot request image downloads",async()=>{let downloads=0;const {bridge,bot}=sdkBridge(async()=>{downloads++;return [{buffer:png,name:"qq-image-1.png"}];});bot.handlers.message({},event);for(const change of [{requestId:"12345:other"},{groupId:"other"},{messageId:"other"},{epoch:"old"},{appId:"99999"}])await assert.rejects(bridge.prepareImages({...params,...change}),e=>e.code==="IMAGE_EXPIRED");assert.equal(downloads,0);});
 test("connection replacement during download invalidates the image transfer",async()=>{let finish;const {bridge,bot}=sdkBridge(()=>new Promise(r=>finish=r));bot.handlers.message({},event);const pending=bridge.prepareImages(params);bridge.disconnect();finish([{buffer:png,name:"qq-image-1.png"}]);await assert.rejects(pending,e=>e.code==="IMAGE_EXPIRED");assert.equal(bridge.imageTransfer,null);});
