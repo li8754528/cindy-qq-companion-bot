@@ -29,5 +29,5 @@ export async function runtime(options={}){
   async function receive(id,text='问题',extra={}){const botId=extra.botId||'bot1';await handler({type:'event',name:'node-notification',method:'qq/message',params:{botId,appId:botId==='bot1'?'12345':'67890',kind:'group',rawEventType:'GROUP_AT_MESSAGE_CREATE',messageId:id,groupId:'group',senderId:'person',timestamp:new Date(clock.now).toISOString(),text,...extra}});return (await tool('get_status',{session_context:{session_id:'owner'}})).result.bots.find(b=>b.id===botId).jobs.find(j=>j.id===calls.filter(c=>c.kind==='project'||c.kind==='task').at(-1)?.req.requestKey);}
   async function reply(job,text='FINAL'){return tool('reply_to_qq',{request_id:job.id,text,session_context:{session_id:job.taskId}});}
   async function ui(action,extra={}){const id='ui-'+ ++counter;await channels[0].onmessage({data:{type:'ui-request',id,action,botId:'bot1',...extra}});return results.find(x=>x.type==='ui-response'&&x.id===id);}
-  return {disk,tasks,receipts,runs,calls,results,clock,failures,receive,reply,tool,ui,first,setConfig(value){config=structuredClone(value);},config:()=>config};
+  return {disk,tasks,receipts,runs,calls,results,clock,failures,receive,reply,tool,ui,first,notify:(method,params)=>handler({type:'event',name:'node-notification',method,params}),setConfig(value){config=structuredClone(value);},config:()=>config};
 }

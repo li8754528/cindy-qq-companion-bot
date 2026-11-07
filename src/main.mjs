@@ -139,7 +139,7 @@ async function selfCheck() {
       try {
         const receipt=await cindy.targets.get({requestKey:j.sendKey});
         if(receipt.found===true&&receipt.status==='accepted'&&receipt.target?.kind==='project'&&receipt.target.id===j.projectId&&typeof receipt.taskId==='string'&&receipt.taskId&&receipt.taskId.length<=160){
-          await recordSource(receipt.taskId);j.taskId=receipt.taskId;j.state='waiting';j.finalEligible=true;j.slotReleased=true;j.blockMember=true;j.nativeSubmissionUnknown=false;j.code='HOST_RECEIPT_RECOVERED';
+          await recordSource(receipt.taskId);j.taskId=receipt.taskId;j.state='waiting';j.finalEligible=true;j.slotReleased=true;j.blockMember=false;j.nativeSubmissionUnknown=false;j.code='HOST_RECEIPT_RECOVERED';
           const h=b.talkFor(j);if(h)h.taskId=receipt.taskId;await b.save();
         }
       }catch{} // Keep the original uncertainty; no request or send is replayed.
