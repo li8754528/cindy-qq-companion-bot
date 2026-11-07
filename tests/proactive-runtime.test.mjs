@@ -59,7 +59,7 @@ async function runtime({ disk = new Map(), nodeError, paused = false, selectedPa
 test("manifest declares proactive tool, discovery and existing permissions stay consistent", () => {
   const tool = manifest.tools.find(t => t.name === "send_group_message"); assert.ok(tool);
   assert.deepEqual(tool.parameters.required, ["bot_id", "group_openid", "text", "request_key"]); assert.match(manifest.whenToUse, /主动/);
-  assert.equal(manifest.version, "1.5.1"); assert.equal(manifest.minCindyVersion, "0.1.124"); assert.equal(manifest.tools.length, 4);
+  assert.equal(manifest.version, "1.6.1"); assert.equal(manifest.minCindyVersion, "0.1.124"); assert.equal(manifest.tools.length, 4);
 });
 test("bundled tool routes to bot2, passes callId, returns verifiable receipt and keeps QQ question state untouched", async () => {
   const h = await runtime(); const before = new Map(h.disk);

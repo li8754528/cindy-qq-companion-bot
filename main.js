@@ -1,7 +1,7 @@
 (() => {
   // src/controller.mjs
   var PLUGIN_ID = "qq-companion-bot";
-  var PLUGIN_VERSION = "1.5.1";
+  var PLUGIN_VERSION = "1.6.1";
   var TALK_IDLE_MS = 2 * 60 * 60 * 1e3;
   var LIVE = /* @__PURE__ */ new Set(["sending", "waiting", "replying"]);
   var DONE = /* @__PURE__ */ new Set(["replied", "failed", "cancelled", "expired", "no_reply", "uncertain"]);

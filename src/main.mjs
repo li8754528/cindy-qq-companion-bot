@@ -29,6 +29,7 @@ async function taskRequestKey(key) {
 // check, so it cannot prove that an input was never accepted.
 const rejectedBeforeSend = new Set(["INVALID_REQUEST", "TASK_NOT_FOUND", "TASK_BUSY", "REVISION_CONFLICT"]);
 const lostTalk = () => Object.assign(fault("TALK_TASK_UNAVAILABLE", "连续会话已结束，请重新 /talk。"), { beforeSend: true });
+// Omit creation permission so the Host applies the owner's task preference.
 async function sendQuestion(params, assertCurrent) {
   assertCurrent();
   const { talkCreateKey, talkTaskId, ...message } = params;
