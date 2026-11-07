@@ -21,5 +21,5 @@
 <div id="jobs"></div>
 <details><summary>管理会话与凭证</summary><div class="actions"><button id="clear-history">结束连续会话</button><button id="clear-secret">清除凭证并暂停</button></div><p class="muted">结束会话只影响下一次 @，Cindy 原任务和历史保留。发送记录不被清空。</p></details></section>
 </div>
-<details><summary>等待答案与收发限制</summary><p>每机器人同时处理一条，最多排队十二条。首条项目请求没有原生 runId；长时间未调用最终答复工具时，可以点击“让其他成员继续”。本请求不重投、不取消，迟到最终答案仍可回原群，同一会话仍等待原请求。</p><p>续聊有 runId 时，仅根据宿主原生终态释放排队位置，不以最后一条文本猜完成。支持 PNG/JPEG/WebP，最多四张、每张五 MiB；最终答案最多1800字符。有引用索引时带原生引用；尚不承诺真正 @ 提醒。</p></details>
+<details><summary>等待答案与收发限制</summary><p>旧消息等待最终答案时，你和其他成员都可继续 @。已确认投递的会话立即接收后续消息，由 Cindy 按会话顺序处理；旧投递结果不确定时，后续消息新建会话，不重投旧问题。迟到最终答案仍可回原群。连接暂时中断时最多缓存十二条待投递消息，已受理的等待答案不占这些位置。</p><p>长时间没有最终答案会显示需要处理，但不阻止后续输入。旧版本尚未投递的排队消息没有保存正文，升级重启后需重新 @。支持 PNG/JPEG/WebP，最多四张、每张五 MiB；最终答案最多1800字符。有引用索引时带原生引用；尚不承诺真正 @ 提醒。</p></details>
 </main><script src="/settings.js"></script></body></html>
