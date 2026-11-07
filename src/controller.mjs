@@ -1,5 +1,5 @@
 export const PLUGIN_ID = "qq-companion-bot";
-export const PLUGIN_VERSION = "1.2.1";
+export const PLUGIN_VERSION = "1.3.0";
 const LIVE = new Set(["sending", "waiting", "replying"]);
 const DONE = new Set(["replied", "failed", "cancelled", "expired", "no_reply", "uncertain"]);
 export function fault(code, message) { return Object.assign(new Error(message), { code }); }
@@ -68,14 +68,20 @@ export class BridgeController {
     }
     await this.save();
     if (generation !== this.runtimeGeneration) return this.snapshot();
-    if (!cfg.enabled) {
-      await this.host.node("qq/disconnect", {}); this.connection = "idle"; this.connectionCode = "";
-    } else if (!/^\d{4,30}$/.test(cfg.appId) || !cfg.targetId) {
-      await this.host.node("qq/disconnect", {}); this.connection = "needs_config"; this.connectionCode = "CONFIG_REQUIRED";
+    if (!cfg.enabled || !/^\d{4,30}$/.test(cfg.appId)) {
+      // Empty/paused slots do not need a worker at startup. A failed disconnect
+      // belongs to this slot and must not prevent the other bots or UI booting.
+      try {
+        if (old.enabled || this.connectionEpoch) await this.host.node("qq/disconnect", {});
+        this.connectionEpoch = null;
+        this.connection = cfg.enabled ? "needs_config" : "idle";
+        this.connectionCode = cfg.enabled ? "CONFIG_REQUIRED" : "";
+      } catch (error) { this.connection = "error"; this.connectionCode = error.code || "NODE_REQUEST_FAILED"; }
     } else if (reconnect || !old.enabled || old.appId !== cfg.appId || old.sandbox !== cfg.sandbox || this.connection !== "connected") {
       this.connection = "connecting"; this.connectionCode = ""; this.changed();
       try {
-        await this.host.resolve(cfg.targetId);
+        if (cfg.targetId) await this.host.resolve(cfg.targetId);
+        else await this.host.defaultSupport?.();
         if (generation !== this.runtimeGeneration) return this.snapshot();
         this.connectionEpoch = `${this.now()}:${generation}`;
         await this.host.node("qq/connect", { appId: cfg.appId, sandbox: cfg.sandbox, epoch: this.connectionEpoch });
@@ -97,7 +103,7 @@ export class BridgeController {
     const text = typeof message.text === "string" ? message.text.trim() : "";
     const imageCount = Number.isInteger(message.imageCount) && message.imageCount > 0 && message.imageCount <= 4 ? message.imageCount : 0;
     const job = { id, appId: message.appId, sandbox: this.cfg.sandbox, groupId: message.groupId, messageId: message.messageId, senderId: message.senderId, targetId: this.cfg.targetId, createdAt: this.now(), preview: text.slice(0, 120) || (imageCount ? "图片提问" : ""), imageCount, text, state: "queued" };
-    if (["新话题", "重置对话", "/reset"].includes(text)) { job.resetTopic = true; this.histories = this.histories.filter(h => h.key !== this.conversationKey(job)); }
+    if (["新话题", "重置对话", "/reset"].includes(text)) job.resetTopic = true;
     if ((!text && !imageCount) || text.length > 12000 || (message.hasAttachments && (!imageCount || message.attachmentCode))) { job.state = "failed"; job.code = /^IMAGE_[A-Z_]+$/.test(message.attachmentCode || "") ? message.attachmentCode : message.hasAttachments ? "IMAGE_FORMAT_UNSUPPORTED" : "QUESTION_CONTENT_INVALID"; delete job.text; }
     if (this.jobs.filter(j => j.state === "queued" || LIVE.has(j.state)).length >= 12) { job.state = "failed"; job.code = "QUEUE_FULL"; delete job.text; }
     // Keep deduplication tombstones instead of evicting identities inside the 24h window.
@@ -124,7 +130,7 @@ export class BridgeController {
     const generation = this.runtimeGeneration;
     try {
       if (this.now() - job.createdAt > 10 * 60 * 1000) throw fault("QUESTION_EXPIRED", "问题已过期。");
-      await this.host.resolve(job.targetId);
+      if (job.targetId) await this.host.resolve(job.targetId);
       let attachments;
       if (job.imageCount) {
         if (!(await this.host.imageSupport?.())) throw fault("IMAGE_HOST_UNSUPPORTED", "当前 Cindy 未提供图片附件投递能力。");
@@ -136,9 +142,11 @@ export class BridgeController {
       job.state = "sending"; await this.save(); this.changed();
       // Guard once more after the awaited durable write, immediately before submission.
       if (!this.cfg.enabled || generation !== this.runtimeGeneration) throw fault("CONFIG_CHANGED", "配置已变化。");
-      this.targetFlight = this.host.send({ target: { kind: "bot", id: job.targetId }, requestKey: `qq:${job.id}`, text: this.prompt(job), delivery: "queue", ...(attachments ? { attachments } : {}) });
+      const assertCurrent = () => { if (generation !== this.runtimeGeneration || !this.matches(job) || !this.jobs.includes(job)) throw fault("CONFIG_CHANGED", "配置已变化，原请求已取消。"); };
+      this.targetFlight = this.host.send({ ...(job.targetId ? { target: { kind: "bot", id: job.targetId } } : {}), requestKey: `qq:${job.id}`, text: this.prompt(job), delivery: "queue", ...(attachments ? { attachments } : {}) }, assertCurrent);
       const receipt = await this.targetFlight;
       if (receipt.accepted !== true || typeof receipt.taskId !== "string") throw fault("DELIVERY_UNCERTAIN", "无法确认伙伴是否接受问题。");
+      if (generation !== this.runtimeGeneration || !this.matches(job)) throw fault("CONFIG_CHANGED", "投递期间配置已变化，原请求已取消。");
       job.taskId = receipt.taskId; job.state = "waiting"; job.questionContent = (job.text || "图片提问").slice(0, 4000); delete job.text; await this.save();
     } catch (error) {
       job.state = error.code === "QUESTION_EXPIRED" ? "expired" : error.code === "CONFIG_CHANGED" ? "cancelled" : job.state === "sending" ? "uncertain" : "failed";
@@ -165,13 +173,16 @@ export class BridgeController {
     job.state = "replying";
     let submitted = false;
     try {
-      await this.host.resolve(job.targetId);
+      if (job.targetId) await this.host.resolve(job.targetId);
       await this.save(); this.changed();
       if (!this.matches(job)) throw fault("CONFIG_CHANGED", "配置已变化，答复未发送。");
       submitted = true;
       const result = await this.host.node("qq/reply", { appId: job.appId, requestId: job.id, groupId: job.groupId, messageId: job.messageId, text: text.trim() });
       if (result.sent !== true) throw fault("QQ_SEND_UNCERTAIN", "QQ 未确认发送。");
-      job.state = "replied"; job.sentAt = this.now(); job.replyId = result.messageId || ""; this.remember(job, text.trim()); await this.save(); this.changed();
+      job.state = "replied"; job.sentAt = this.now(); job.replyId = result.messageId || "";
+      if (this.jobs.includes(job) && this.matches(job)) this.remember(job, text.trim());
+      else delete job.questionContent;
+      await this.save(); this.changed();
       return { sent: true, request_id: id, message_id: job.replyId };
     } catch (error) { job.state = submitted ? "uncertain" : error.code === "CONFIG_CHANGED" ? "cancelled" : "failed"; job.code = error.code || "QQ_SEND_UNCERTAIN"; await this.save(); throw fault(job.code, "QQ 答复未确认成功。请查看插件状态和原群，不要重复发送。"); }
     finally { this.changed(); await this.pump(); }

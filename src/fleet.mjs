@@ -10,7 +10,7 @@ export class BridgeFleet {
       this.controllers.set(id, bridge); await bridge.init();
     }
   }
-  snapshot() { return { version: PLUGIN_VERSION, config: this.config, bots: this.config.bots.map(b => ({ ...this.controllers.get(b.id).snapshot(), id: b.id, name: b.name, nextReconnectAt: this.recovery.get(b.id)?.due || null, lastAutoRecoveryAt: this.lastRecovery.get(b.id) || null })), hostImageAttachments: undefined }; }
+  snapshot() { return { version: PLUGIN_VERSION, config: this.config, bots: this.config.bots.map(b => ({ ...(this.controllers.get(b.id)?.snapshot() || { connection: "needs_config", connectionCode: "BOOT_PENDING", jobs: [] }), id: b.id, name: b.name, nextReconnectAt: this.recovery.get(b.id)?.due || null, lastAutoRecoveryAt: this.lastRecovery.get(b.id) || null })), hostImageAttachments: undefined }; }
   changed() { this.host.changed?.(this.snapshot()); }
   configure(raw, reconnectId) {
     // Settings writes are serialized; invalid duplicate identities never partly reconnect.
@@ -76,6 +76,19 @@ export class BridgeFleet {
   }
   async tick() { await this.recover(); for (const b of this.controllers.values()) await b.tick(); }
   async clearHistory(id) { const b = this.controllers.get(id); if (!b) throw fault("BOT_CONFIG_INVALID", "机器人编号无效。"); b.histories = []; await b.save(); this.changed(); return this.snapshot(); }
+  async clearBot(id) {
+    const run = this.configuring.then(async () => {
+      const b = this.controllers.get(id);
+      if (!b || this.config.bots.some(bot => bot.id === id)) throw fault("BOT_STILL_CONFIGURED", "请先移除机器人配置，再清理记录。");
+      if (b.cfg.enabled || b.connection !== "idle") throw fault("BOT_BUSY", "此机器人尚未完全停止，请稍后重试清理。");
+      // Disabling has already invalidated the runtime generation. Late receipts
+      // may finish, but cannot restore removed jobs or dispatch a new message.
+      b.runtimeGeneration++;
+      b.jobs = []; b.histories = []; b.groups = []; await b.save();
+      this.recovery.delete(id); this.lastRecovery.delete(id); this.changed(); return this.snapshot();
+    });
+    this.configuring = run.catch(() => {}); return run;
+  }
   owner(requestId) { const b = [...this.controllers.values()].find(b => b.jobs.some(j => j.id === requestId)); if (!b) throw fault("QUESTION_FORBIDDEN", "未找到当前请求。"); return b; }
   question(id, session) { return this.owner(id).question(id, session); }
   reply(id, text, session) { return this.owner(id).reply(id, text, session); }

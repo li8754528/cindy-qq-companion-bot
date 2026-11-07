@@ -1,7 +1,7 @@
 (() => {
   // src/controller.mjs
   var PLUGIN_ID = "qq-companion-bot";
-  var PLUGIN_VERSION = "1.2.1";
+  var PLUGIN_VERSION = "1.3.0";
   var LIVE = /* @__PURE__ */ new Set(["sending", "waiting", "replying"]);
   var DONE = /* @__PURE__ */ new Set(["replied", "failed", "cancelled", "expired", "no_reply", "uncertain"]);
   function fault(code, message) {
@@ -50,8 +50,8 @@
       this.host.changed?.(this.snapshot());
     }
     save() {
-      const snapshot = JSON.parse(JSON.stringify({ schema: 2, jobs: this.jobs, groups: this.groups, histories: this.histories }));
-      this.writeChain = this.writeChain.then(() => this.host.write(snapshot));
+      const snapshot2 = JSON.parse(JSON.stringify({ schema: 2, jobs: this.jobs, groups: this.groups, histories: this.histories }));
+      this.writeChain = this.writeChain.then(() => this.host.write(snapshot2));
       return this.writeChain;
     }
     async init() {
@@ -118,20 +118,23 @@
       }
       await this.save();
       if (generation !== this.runtimeGeneration) return this.snapshot();
-      if (!cfg.enabled) {
-        await this.host.node("qq/disconnect", {});
-        this.connection = "idle";
-        this.connectionCode = "";
-      } else if (!/^\d{4,30}$/.test(cfg.appId) || !cfg.targetId) {
-        await this.host.node("qq/disconnect", {});
-        this.connection = "needs_config";
-        this.connectionCode = "CONFIG_REQUIRED";
+      if (!cfg.enabled || !/^\d{4,30}$/.test(cfg.appId)) {
+        try {
+          if (old.enabled || this.connectionEpoch) await this.host.node("qq/disconnect", {});
+          this.connectionEpoch = null;
+          this.connection = cfg.enabled ? "needs_config" : "idle";
+          this.connectionCode = cfg.enabled ? "CONFIG_REQUIRED" : "";
+        } catch (error) {
+          this.connection = "error";
+          this.connectionCode = error.code || "NODE_REQUEST_FAILED";
+        }
       } else if (reconnect || !old.enabled || old.appId !== cfg.appId || old.sandbox !== cfg.sandbox || this.connection !== "connected") {
         this.connection = "connecting";
         this.connectionCode = "";
         this.changed();
         try {
-          await this.host.resolve(cfg.targetId);
+          if (cfg.targetId) await this.host.resolve(cfg.targetId);
+          else await this.host.defaultSupport?.();
           if (generation !== this.runtimeGeneration) return this.snapshot();
           this.connectionEpoch = `${this.now()}:${generation}`;
           await this.host.node("qq/connect", { appId: cfg.appId, sandbox: cfg.sandbox, epoch: this.connectionEpoch });
@@ -164,10 +167,7 @@
       const text = typeof message.text === "string" ? message.text.trim() : "";
       const imageCount = Number.isInteger(message.imageCount) && message.imageCount > 0 && message.imageCount <= 4 ? message.imageCount : 0;
       const job = { id, appId: message.appId, sandbox: this.cfg.sandbox, groupId: message.groupId, messageId: message.messageId, senderId: message.senderId, targetId: this.cfg.targetId, createdAt: this.now(), preview: text.slice(0, 120) || (imageCount ? "\u56FE\u7247\u63D0\u95EE" : ""), imageCount, text, state: "queued" };
-      if (["\u65B0\u8BDD\u9898", "\u91CD\u7F6E\u5BF9\u8BDD", "/reset"].includes(text)) {
-        job.resetTopic = true;
-        this.histories = this.histories.filter((h) => h.key !== this.conversationKey(job));
-      }
+      if (["\u65B0\u8BDD\u9898", "\u91CD\u7F6E\u5BF9\u8BDD", "/reset"].includes(text)) job.resetTopic = true;
       if (!text && !imageCount || text.length > 12e3 || message.hasAttachments && (!imageCount || message.attachmentCode)) {
         job.state = "failed";
         job.code = /^IMAGE_[A-Z_]+$/.test(message.attachmentCode || "") ? message.attachmentCode : message.hasAttachments ? "IMAGE_FORMAT_UNSUPPORTED" : "QUESTION_CONTENT_INVALID";
@@ -213,7 +213,7 @@
       const generation = this.runtimeGeneration;
       try {
         if (this.now() - job.createdAt > 10 * 60 * 1e3) throw fault("QUESTION_EXPIRED", "\u95EE\u9898\u5DF2\u8FC7\u671F\u3002");
-        await this.host.resolve(job.targetId);
+        if (job.targetId) await this.host.resolve(job.targetId);
         let attachments;
         if (job.imageCount) {
           if (!await this.host.imageSupport?.()) throw fault("IMAGE_HOST_UNSUPPORTED", "\u5F53\u524D Cindy \u672A\u63D0\u4F9B\u56FE\u7247\u9644\u4EF6\u6295\u9012\u80FD\u529B\u3002");
@@ -226,9 +226,13 @@
         await this.save();
         this.changed();
         if (!this.cfg.enabled || generation !== this.runtimeGeneration) throw fault("CONFIG_CHANGED", "\u914D\u7F6E\u5DF2\u53D8\u5316\u3002");
-        this.targetFlight = this.host.send({ target: { kind: "bot", id: job.targetId }, requestKey: `qq:${job.id}`, text: this.prompt(job), delivery: "queue", ...attachments ? { attachments } : {} });
+        const assertCurrent = () => {
+          if (generation !== this.runtimeGeneration || !this.matches(job) || !this.jobs.includes(job)) throw fault("CONFIG_CHANGED", "\u914D\u7F6E\u5DF2\u53D8\u5316\uFF0C\u539F\u8BF7\u6C42\u5DF2\u53D6\u6D88\u3002");
+        };
+        this.targetFlight = this.host.send({ ...job.targetId ? { target: { kind: "bot", id: job.targetId } } : {}, requestKey: `qq:${job.id}`, text: this.prompt(job), delivery: "queue", ...attachments ? { attachments } : {} }, assertCurrent);
         const receipt = await this.targetFlight;
         if (receipt.accepted !== true || typeof receipt.taskId !== "string") throw fault("DELIVERY_UNCERTAIN", "\u65E0\u6CD5\u786E\u8BA4\u4F19\u4F34\u662F\u5426\u63A5\u53D7\u95EE\u9898\u3002");
+        if (generation !== this.runtimeGeneration || !this.matches(job)) throw fault("CONFIG_CHANGED", "\u6295\u9012\u671F\u95F4\u914D\u7F6E\u5DF2\u53D8\u5316\uFF0C\u539F\u8BF7\u6C42\u5DF2\u53D6\u6D88\u3002");
         job.taskId = receipt.taskId;
         job.state = "waiting";
         job.questionContent = (job.text || "\u56FE\u7247\u63D0\u95EE").slice(0, 4e3);
@@ -275,7 +279,7 @@
       job.state = "replying";
       let submitted = false;
       try {
-        await this.host.resolve(job.targetId);
+        if (job.targetId) await this.host.resolve(job.targetId);
         await this.save();
         this.changed();
         if (!this.matches(job)) throw fault("CONFIG_CHANGED", "\u914D\u7F6E\u5DF2\u53D8\u5316\uFF0C\u7B54\u590D\u672A\u53D1\u9001\u3002");
@@ -285,7 +289,8 @@
         job.state = "replied";
         job.sentAt = this.now();
         job.replyId = result.messageId || "";
-        this.remember(job, text.trim());
+        if (this.jobs.includes(job) && this.matches(job)) this.remember(job, text.trim());
+        else delete job.questionContent;
         await this.save();
         this.changed();
         return { sent: true, request_id: id, message_id: job.replyId };
@@ -363,7 +368,7 @@
       }
     }
     snapshot() {
-      return { version: PLUGIN_VERSION, config: this.config, bots: this.config.bots.map((b) => ({ ...this.controllers.get(b.id).snapshot(), id: b.id, name: b.name, nextReconnectAt: this.recovery.get(b.id)?.due || null, lastAutoRecoveryAt: this.lastRecovery.get(b.id) || null })), hostImageAttachments: void 0 };
+      return { version: PLUGIN_VERSION, config: this.config, bots: this.config.bots.map((b) => ({ ...this.controllers.get(b.id)?.snapshot() || { connection: "needs_config", connectionCode: "BOOT_PENDING", jobs: [] }, id: b.id, name: b.name, nextReconnectAt: this.recovery.get(b.id)?.due || null, lastAutoRecoveryAt: this.lastRecovery.get(b.id) || null })), hostImageAttachments: void 0 };
     }
     changed() {
       this.host.changed?.(this.snapshot());
@@ -484,6 +489,25 @@
       this.changed();
       return this.snapshot();
     }
+    async clearBot(id) {
+      const run = this.configuring.then(async () => {
+        const b = this.controllers.get(id);
+        if (!b || this.config.bots.some((bot) => bot.id === id)) throw fault("BOT_STILL_CONFIGURED", "\u8BF7\u5148\u79FB\u9664\u673A\u5668\u4EBA\u914D\u7F6E\uFF0C\u518D\u6E05\u7406\u8BB0\u5F55\u3002");
+        if (b.cfg.enabled || b.connection !== "idle") throw fault("BOT_BUSY", "\u6B64\u673A\u5668\u4EBA\u5C1A\u672A\u5B8C\u5168\u505C\u6B62\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u6E05\u7406\u3002");
+        b.runtimeGeneration++;
+        b.jobs = [];
+        b.histories = [];
+        b.groups = [];
+        await b.save();
+        this.recovery.delete(id);
+        this.lastRecovery.delete(id);
+        this.changed();
+        return this.snapshot();
+      });
+      this.configuring = run.catch(() => {
+      });
+      return run;
+    }
     owner(requestId) {
       const b = [...this.controllers.values()].find((b2) => b2.jobs.some((j) => j.id === requestId));
       if (!b) throw fault("QUESTION_FORBIDDEN", "\u672A\u627E\u5230\u5F53\u524D\u8BF7\u6C42\u3002");
@@ -542,6 +566,21 @@
     const caps = await cindy.tasks.capabilities();
     return Array.isArray(caps?.messageAttachments?.kinds) && caps.messageAttachments.kinds.includes("image");
   };
+  var defaultSupport = async () => {
+    const caps = await cindy.tasks?.capabilities?.();
+    if (!caps?.operations?.includes("create") || !caps.operations.includes("send")) throw fault("HOST_UNSUPPORTED", "\u5F53\u524D Cindy \u4E0D\u652F\u6301\u63D2\u4EF6\u65B0\u5EFA\u5BF9\u8BDD\u3002");
+  };
+  async function sendQuestion(params, assertCurrent) {
+    assertCurrent();
+    if (params.target) return cindy.targets.send(params);
+    await defaultSupport();
+    assertCurrent();
+    const task = await cindy.tasks.create({ requestKey: params.requestKey + ":create", title: "QQ \u7FA4\u63D0\u95EE" });
+    assertCurrent();
+    const run = await cindy.tasks.send({ taskId: task.taskId, expectedRevision: task.revision, requestKey: params.requestKey, text: params.text, ...params.attachments ? { attachments: params.attachments } : {} });
+    if (typeof run?.runId !== "string" || !run.runId) throw fault("DELIVERY_UNCERTAIN", "\u65E0\u6CD5\u786E\u8BA4\u65B0\u5BF9\u8BDD\u662F\u5426\u5DF2\u63A5\u53D7\u95EE\u9898\uFF0C\u8BF7\u68C0\u67E5\u5BF9\u8BDD\u5217\u8868\u3002");
+    return { accepted: true, taskId: task.taskId };
+  }
   var controller = new BridgeFleet({
     forBot: (id) => {
       const path = id === "bot1" ? "bridge-state.json" : "bridge-state-" + id + ".json";
@@ -553,7 +592,8 @@
           if (!result.ok) throw fault("STATE_WRITE_FAILED", "\u65E0\u6CD5\u4FDD\u5B58\u6295\u9012\u72B6\u6001\uFF0C\u5DF2\u505C\u6B62\u53D1\u9001\u3002");
         },
         resolve: (id2) => cindy.targets.resolve({ target: { kind: "bot", id: id2 } }),
-        send: (params) => cindy.targets.send(params),
+        send: sendQuestion,
+        defaultSupport,
         imageSupport,
         images: (job, epoch) => collectImages(controller.controllers.get(id).host.node, job, epoch),
         node: async (method, params) => {
@@ -571,9 +611,17 @@
         }
       };
     },
-    changed: (snapshot) => channel.postMessage({ type: "snapshot", snapshot })
+    changed: (snapshot2) => channel.postMessage({ type: "snapshot", snapshot: snapshot2 })
   });
   var bootError = null;
+  var checkedAt = null;
+  var snapshot = () => ({ ...controller.snapshot(), bootError, checkedAt });
+  function failBoot(error, message) {
+    bootError = { code: error.code || "BOOT_FAILED", message };
+    checkedAt = Date.now();
+    channel.postMessage({ type: "boot-error", error: bootError });
+    channel.postMessage({ type: "snapshot", snapshot: snapshot() });
+  }
   var ready = (async () => {
     if (typeof cindy.targets?.send !== "function") throw fault("HOST_UNSUPPORTED", "\u5F53\u524D Cindy \u7F3A\u5C11\u6307\u5B9A\u4F19\u4F34\u6295\u9012\u63A5\u53E3\u3002");
     const raw = await (await fetch("/kv")).json(), config = fleetConfig(raw);
@@ -583,9 +631,9 @@
     }
     await controller.init();
     await controller.configure(config);
+    checkedAt = Date.now();
   })().catch((error) => {
-    bootError = { code: error.code || "BOOT_FAILED", message: "\u63D2\u4EF6\u672A\u80FD\u542F\u52A8\uFF0C\u8BF7\u68C0\u67E5\u6743\u9650\u548C\u4FDD\u5B58\u7684\u6570\u636E\u3002" };
-    channel.postMessage({ type: "boot-error", error: bootError });
+    failBoot(error, "\u63D2\u4EF6\u542F\u52A8\u81EA\u68C0\u672A\u901A\u8FC7\uFF0C\u8BF7\u68C0\u67E5\u6743\u9650\u6216\u4FDD\u5B58\u7684\u6570\u636E\uFF1B\u4FEE\u590D\u540E\u91CD\u65B0\u542F\u7528\u63D2\u4EF6\u3002");
   });
   var uiRequests = /* @__PURE__ */ new Map();
   setInterval(async () => {
@@ -593,12 +641,42 @@
     if (!bootError) {
       try {
         await controller.tick();
-      } catch {
-        bootError = { code: "STATE_WRITE_FAILED", message: "\u72B6\u6001\u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u505C\u6B62\u53D1\u9001\uFF0C\u8BF7\u68C0\u67E5\u63D2\u4EF6\u6570\u636E\u3002" };
-        channel.postMessage({ type: "boot-error", error: bootError });
+      } catch (error) {
+        failBoot(error, "\u72B6\u6001\u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u505C\u6B62\u53D1\u9001\uFF0C\u8BF7\u68C0\u67E5\u63D2\u4EF6\u6570\u636E\u3002");
       }
     }
   }, 15e3);
+  async function selfCheck() {
+    await ready;
+    if (!bootError) {
+      for (const cfg of controller.config.bots) {
+        const b = controller.controllers.get(cfg.id);
+        if (!cfg.enabled) {
+          if (b.connection === "error") await controller.configure(controller.desired, cfg.id);
+          continue;
+        }
+        if (b.connection === "needs_config") continue;
+        try {
+          const health = await b.host.node("qq/status", { health: true });
+          if (health.appId === b.cfg.appId && health.epoch === b.connectionEpoch && ["connected", "connecting"].includes(health.state)) await controller.status({ botId: cfg.id, state: health.state, epoch: health.epoch });
+          else await controller.status({ botId: cfg.id, state: "error", code: "NODE_STOPPED", epoch: b.connectionEpoch });
+        } catch (error) {
+          await controller.status({ botId: cfg.id, state: ["PERMISSION_DENIED", "QQ_SECRET_REQUIRED"].includes(error.code) ? "needs_config" : "error", code: error.code || "NODE_REQUEST_FAILED", epoch: b.connectionEpoch });
+        }
+      }
+      await controller.recover();
+    }
+    checkedAt = Date.now();
+    return snapshot();
+  }
+  ready.then(async () => {
+    try {
+      await selfCheck();
+    } catch (error) {
+      failBoot(error, "\u542F\u52A8\u540E\u7684\u81EA\u68C0\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u63D2\u4EF6\u6743\u9650\u548C\u4FDD\u5B58\u7684\u6570\u636E\u3002");
+    }
+    channel.postMessage({ type: "snapshot", snapshot: snapshot() });
+  });
   channel.onmessage = async (event) => {
     const msg = event.data;
     if (!msg || msg.type !== "ui-request" || typeof msg.id !== "string") return;
@@ -607,18 +685,30 @@
       return;
     }
     const run = (async () => {
-      await ready;
-      if (bootError) return { type: "ui-response", id: msg.id, ok: false, error: bootError };
       try {
         let data;
-        if (msg.action === "snapshot") data = controller.snapshot();
-        else if (msg.action === "targets") data = await cindy.targets.list({ targetKind: "bot" });
-        else if (msg.action === "reload") data = await controller.configure(await (await fetch("/kv")).json(), msg.botId);
-        else if (msg.action === "clear-history") data = await controller.clearHistory(msg.botId);
-        else throw fault("INVALID_UI_REQUEST", "\u4E0D\u652F\u6301\u7684\u64CD\u4F5C\u3002");
+        if (msg.action === "targets") data = await cindy.targets.list({ targetKind: "bot" });
+        else {
+          await ready;
+          if (msg.action === "snapshot") data = snapshot();
+          else if (msg.action === "self-check") data = await selfCheck();
+          else {
+            if (bootError) throw fault(bootError.code, bootError.message);
+            if (msg.action === "reload") {
+              await controller.configure(await (await fetch("/kv")).json(), msg.botId);
+              data = snapshot();
+            } else if (msg.action === "clear-history") {
+              await controller.clearHistory(msg.botId);
+              data = snapshot();
+            } else if (msg.action === "clear-bot") {
+              await controller.clearBot(msg.botId);
+              data = snapshot();
+            } else throw fault("INVALID_UI_REQUEST", "\u4E0D\u652F\u6301\u7684\u64CD\u4F5C\u3002");
+          }
+        }
         return { type: "ui-response", id: msg.id, ok: true, data };
       } catch (error) {
-        return { type: "ui-response", id: msg.id, ok: false, error: { code: error.code || "REQUEST_FAILED", message: "\u64CD\u4F5C\u672A\u5B8C\u6210\uFF0C\u8BF7\u68C0\u67E5\u63D2\u4EF6\u6743\u9650\u548C\u4F19\u4F34\u72B6\u6001\u3002" } };
+        return { type: "ui-response", id: msg.id, ok: false, error: { code: error.code || "REQUEST_FAILED", message: error.message || "\u64CD\u4F5C\u672A\u5B8C\u6210\uFF0C\u8BF7\u68C0\u67E5\u63D2\u4EF6\u6743\u9650\u548C\u4F19\u4F34\u72B6\u6001\u3002" } };
       }
     })();
     uiRequests.set(msg.id, run);
@@ -632,9 +722,8 @@
         if (msg.method === "qq/message") await controller.receive(msg.params);
         else if (msg.method === "qq/status") await controller.status(msg.params);
         else if (msg.method === "qq/tick") await controller.tick();
-      } catch {
-        bootError = { code: "STATE_OR_INBOUND_FAILED", message: "\u6D88\u606F\u5904\u7406\u6216\u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u505C\u6B62\u53D1\u9001\uFF0C\u8BF7\u4FDD\u7559\u6570\u636E\u68C0\u67E5\uFF1B\u672A\u81EA\u52A8\u91CD\u53D1\u3002" };
-        channel.postMessage({ type: "boot-error", error: bootError });
+      } catch (error) {
+        failBoot(error, "\u6D88\u606F\u5904\u7406\u6216\u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u505C\u6B62\u53D1\u9001\uFF0C\u8BF7\u4FDD\u7559\u6570\u636E\u68C0\u67E5\uFF1B\u672A\u81EA\u52A8\u91CD\u53D1\u3002");
       }
     }
     if (msg.type === "event" && msg.name === "node-status" && ["stopped", "crashed"].includes(msg.state) && !bootError) {
@@ -650,10 +739,10 @@
     }
     if (msg.type !== "tool-call") return;
     try {
-      if (bootError) throw fault(bootError.code, bootError.message);
       let result;
       const args = msg.args || {};
-      if (msg.tool === "get_status") result = { ...controller.snapshot(), hostImageAttachments: await imageSupport().catch(() => false) };
+      if (msg.tool === "get_status") result = { ...snapshot(), hostImageAttachments: await imageSupport().catch(() => false) };
+      else if (bootError) throw fault(bootError.code, bootError.message);
       else if (msg.tool === "get_question") result = await controller.question(args.request_id, args.session_context?.session_id);
       else if (msg.tool === "reply_to_qq") result = await controller.reply(args.request_id, args.text, args.session_context?.session_id);
       else throw fault("UNKNOWN_TOOL", "\u4E0D\u652F\u6301\u7684\u5DE5\u5177\u3002");
