@@ -19,9 +19,8 @@ test('unanswered first message does not hold followups or other members in the p
   assert.equal(submissions(h).length,3);
   assert.ok((await jobs(h)).every(j=>j.state!=='queued'));
   for(const [index,job,question] of [[0,a,'FIRST'],[1,b,'SECOND'],[2,c,'OTHER']]){
-    const req=submissions(h)[index].req,separator=req.text.indexOf('\n');
-    assert.equal(req.text.slice(0,separator).length,236);
-    assert.deepEqual(JSON.parse(req.text.slice(separator+1)),{request_id:job.id,question});
+    const req=submissions(h)[index].req;
+    assert.deepEqual(JSON.parse(req.text),{request_id:job.id,question});
     assert.equal(req.requestKey,job.id);
   }
   assert.equal((await h.reply(b,'SECOND_FINAL')).ok,true);
