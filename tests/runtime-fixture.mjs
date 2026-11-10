@@ -8,7 +8,7 @@ export async function runtime(options={}){
   const disk=options.disk||new Map(),tasks=options.tasks||new Map(),receipts=options.receipts||new Map(),calls=[],results=[],channels=[],health=new Map(),runs=options.runs||new Map(),clock={now:options.now||Date.now()},failures={};let handler,config=structuredClone(options.config||configuration),sequence=tasks.size;
   class ClockDate extends Date {static now(){return clock.now;}}
   const fail=code=>Object.assign(new Error('fixture'),{code});
-  const cindy={onHostMessage(fn){handler=fn;},async send(value){results.push(value);},
+  const cindy={onHostMessage(fn){handler=fn;},async send(value){if(value.type==='tasks-request'){if(options.taskEnvelope)return options.taskEnvelope(value);try{return {ok:true,data:await cindy.tasks.get(value)};}catch(error){return {ok:false,error:{code:error.code,message:error.message,retryable:false}};}}results.push(value);},
     async fs(req){if(failures.fs?.(req))return {ok:false,errorCode:'WRITE_FAILED'};if(req.op==='read')return disk.has(req.path)?{ok:true,content:disk.get(req.path)}:{ok:false,errorCode:'NOT_FOUND'};disk.set(req.path,req.content);return {ok:true};},
     async pickModel(){return {ok:true,route:{...route,effort:'low'}};},
     targets:{async list(req){calls.push({kind:'list',req});return {targets:[{kind:'project',id:'C:/project',label:'业务项目'}]};},async resolve(req){calls.push({kind:'resolve',req});if(failures.resolve)throw fail(failures.resolve);return req.target;},

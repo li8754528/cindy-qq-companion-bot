@@ -1,5 +1,5 @@
 import {groupsFrom} from './config.mjs';
-export const PLUGIN_ID='qq-companion-bot',PLUGIN_VERSION='1.6.4',TALK_IDLE_MS=2*60*60*1000;
+export const PLUGIN_ID='qq-companion-bot',PLUGIN_VERSION='1.6.5',TALK_IDLE_MS=2*60*60*1000;
 const DONE=new Set(['replied','failed','cancelled','expired','no_reply','uncertain']);
 const SEND_STATES=new Set(['replying','proactive_sending']);
 const STATES=new Set([...DONE,'queued','sending','waiting','replying','reply_rejected','proactive_sending']);

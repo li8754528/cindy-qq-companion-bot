@@ -1,8 +1,25 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
 import {runtime,configuration} from './runtime-fixture.mjs';
 const args={bot_id:'bot2',group_openid:'group_2',text:'OWNER_NOTIFICATION',request_key:'notice-001',session_context:{session_id:'owner'}};
-test('proactive tool retains existing declaration and permissions without granting group tasks arbitrary destinations',()=>{const manifest=JSON.parse(fs.readFileSync(new URL('../ghost.json',import.meta.url),'utf8'));assert.equal(manifest.version,'1.6.4');assert.equal(manifest.tools.length,4);assert.deepEqual(manifest.tools.find(t=>t.name==='send_group_message').parameters.required,['bot_id','group_openid','text','request_key']);assert.equal(manifest.agent.targets,true);assert.equal(manifest.agent.tasks,true);});
+test('proactive tool retains existing declaration and permissions without granting group tasks arbitrary destinations',()=>{const manifest=JSON.parse(fs.readFileSync(new URL('../ghost.json',import.meta.url),'utf8'));assert.equal(manifest.version,'1.6.5');assert.equal(manifest.tools.length,4);assert.deepEqual(manifest.tools.find(t=>t.name==='send_group_message').parameters.required,['bot_id','group_openid','text','request_key']);assert.equal(manifest.agent.targets,true);assert.equal(manifest.agent.tasks,true);});
 test('owner proactive send retains real destination receipt, callId and separate dedup state',async()=>{const h=await runtime();const value=await h.tool('send_group_message',args);assert.equal(value.ok,true);assert.equal(value.result.bot_id,'bot2');assert.equal(value.result.app_id,'67890');assert.equal(value.result.group_openid,'group_2');const node=h.calls.find(c=>c.req?.method==='qq/send-group');assert.ok(node.req.callId);assert.equal(node.req.params.botId,'bot2');assert.ok(!h.disk.get('proactive-state.json').includes('OWNER_NOTIFICATION'));assert.equal((await h.tool('send_group_message',args)).ok,true);assert.equal(h.calls.filter(c=>c.req?.method==='qq/send-group').length,1);});
 test('owner send with unknown receipt does not retry across calls or restart',async()=>{const h=await runtime();h.failures.node=req=>req.method==='qq/send-group'?{ok:false,message:'QQ_SEND_UNCERTAIN'}:{ok:true,result:{}};assert.equal((await h.tool('send_group_message',args)).ok,false);assert.equal((await h.tool('send_group_message',args)).ok,false);const next=await runtime({disk:h.disk,tasks:h.tasks});assert.equal((await next.tool('send_group_message',args)).ok,false);assert.equal(next.calls.filter(c=>c.req?.method==='qq/send-group').length,0);});
 test('paused bot cannot send proactive, other bot remains usable',async()=>{const config=structuredClone(configuration);config.bots[1].paused=true;config.bots[1].enabled=false;const h=await runtime({config});assert.equal((await h.tool('send_group_message',args)).ok,false);assert.equal(h.calls.filter(c=>c.req?.method==='qq/send-group').length,0);});
 test('corrupt old source state stops startup and all arbitrary sends instead of rebuilding empty authorization',async()=>{const disk=new Map([['qq-source-session-compat.json','broken']]);const h=await runtime({disk});assert.ok(h.first.result.bootError);assert.equal((await h.tool('send_group_message',args)).ok,false);assert.equal(h.calls.filter(c=>c.req?.method==='qq/send-group').length,0);assert.equal(disk.get('qq-source-session-compat.json'),'broken');});
+
+for (const envelope of [undefined, {ok:false,error:{message:'Task not found'}}, {ok:false,error:{code:'PERMISSION_DENIED',message:'Task not found'}}, {ok:true,data:{taskId:'different'}}]) {
+ test('unconfirmed task envelope never authorizes proactive send '+JSON.stringify(envelope),async()=>{
+  const h=await runtime({taskEnvelope:()=>envelope});
+  const result=await h.tool('send_group_message',args);
+  assert.equal(result.ok,false);
+  assert.equal(h.calls.filter(c=>c.req?.method==='qq/send-group').length,0);
+ });
+}
+test('structured TASK_NOT_FOUND authorizes owner; existing plugin task stays forbidden',async()=>{
+ for(const exists of [false,true]){
+  const h=await runtime({taskEnvelope:req=>exists?{ok:true,data:{taskId:req.taskId}}:{ok:false,error:{code:'TASK_NOT_FOUND',message:'Task not found',retryable:false}}});
+  const result=await h.tool('send_group_message',args);
+  assert.equal(result.ok,!exists);
+  assert.equal(h.calls.filter(c=>c.req?.method==='qq/send-group').length,exists?0:1);
+ }
+});

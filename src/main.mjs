@@ -4,6 +4,7 @@ import { fleetConfig, secretKey } from "./config.mjs";
 import { collectImages } from "./image-transfer.mjs";
 import { ProactiveSender, sendErrorMessage } from "./proactive.mjs";
 import { StateStore } from './state-store.mjs';
+import { getHostTask } from './host-task.mjs';
 const channel = new BroadcastChannel("qq-companion-bot-ui");
 async function readState(path) {
   const result = await cindy.fs({ op: "read", root: "data", path });
@@ -27,7 +28,7 @@ async function sendQuestion(params, assertCurrent) {
   assertCurrent();await defaultSupport();assertCurrent();
   let task;
   if(params.taskId)try {
-    task=await cindy.tasks.get({taskId:params.taskId});assertCurrent();
+    task=await getHostTask(params.taskId);assertCurrent();
     if(task.status!=='active')task=null;
   } catch(error) {if(error.code==='TASK_NOT_FOUND')task=null;else {error.beforeSend=true;throw error;}}
   if(task) {
@@ -57,7 +58,7 @@ async function ownerSession(id){
   if(migratedQQSessions.has(id)||[...controller.controllers.values()].some(b=>b.jobs.some(j=>j.taskId===id)||b.histories.some(h=>h.taskId===id)))return false;
   // Host ownership also covers a project creation whose ACK was lost before
   // the plugin could persist its taskId. No source-identity gap grants group send.
-  try {const task=await cindy.tasks.get({taskId:id});if(task?.taskId===id)return false;throw fault('SOURCE_UNCERTAIN','任务来源不明确。');}
+  try {const task=await getHostTask(id);if(task?.taskId===id)return false;throw fault('SOURCE_UNCERTAIN','任务来源不明确。');}
   catch(error){if(error.code==='TASK_NOT_FOUND')return true;throw error;}
 }
 const controller = new BridgeFleet({forBot:id=>({

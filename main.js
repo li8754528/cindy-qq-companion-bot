@@ -43,7 +43,7 @@
   }
 
   // src/controller.mjs
-  var PLUGIN_VERSION = "1.6.4";
+  var PLUGIN_VERSION = "1.6.5";
   var TALK_IDLE_MS = 2 * 60 * 60 * 1e3;
   var DONE = /* @__PURE__ */ new Set(["replied", "failed", "cancelled", "expired", "no_reply", "uncertain"]);
   var SEND_STATES = /* @__PURE__ */ new Set(["replying", "proactive_sending"]);
@@ -872,6 +872,14 @@
     }
   };
 
+  // src/host-task.mjs
+  async function getHostTask(taskId) {
+    const result = await cindy.send({ type: "tasks-request", kind: "get", taskId });
+    if (result?.ok === true) return result.data;
+    const code = result?.ok === false && typeof result.error?.code === "string" ? result.error.code : "SOURCE_UNCERTAIN";
+    throw fault(code, result?.error?.message || "\u5BBF\u4E3B\u4EFB\u52A1\u6765\u6E90\u67E5\u8BE2\u672A\u786E\u8BA4\u3002");
+  }
+
   // src/main.mjs
   var channel = new BroadcastChannel("qq-companion-bot-ui");
   async function readState(path) {
@@ -901,7 +909,7 @@
     assertCurrent();
     let task;
     if (params.taskId) try {
-      task = await cindy.tasks.get({ taskId: params.taskId });
+      task = await getHostTask(params.taskId);
       assertCurrent();
       if (task.status !== "active") task = null;
     } catch (error2) {
@@ -966,7 +974,7 @@
     if (!sourcesReady || typeof id !== "string" || !id) throw fault("PROACTIVE_FORBIDDEN", "\u6765\u6E90\u672A\u6838\u5B9E\uFF0C\u4E3B\u52A8\u53D1\u9001\u4E0D\u53EF\u7528\u3002");
     if (migratedQQSessions.has(id) || [...controller.controllers.values()].some((b) => b.jobs.some((j) => j.taskId === id) || b.histories.some((h) => h.taskId === id))) return false;
     try {
-      const task = await cindy.tasks.get({ taskId: id });
+      const task = await getHostTask(id);
       if (task?.taskId === id) return false;
       throw fault("SOURCE_UNCERTAIN", "\u4EFB\u52A1\u6765\u6E90\u4E0D\u660E\u786E\u3002");
     } catch (error2) {
