@@ -67,3 +67,16 @@ test('group-origin diagnostics show only its own task requests and omit other gr
 test('missing caller context cannot read or impersonate persisted configuration',async()=>{const h=await runtime();await h.receive('unconfigured','private',{groupId:'private-group'});const result=await h.tool('get_status');assert.equal(result.ok,true);assert.equal(result.result.bots.length,0);assert.equal(result.result.config,undefined);assert.equal(result.result.config_visibility,'not-included');assert.equal(result.result.caller_scope.kind,'unverified');assert.equal(result.result.caller_scope.code,'CALLER_CONTEXT_REQUIRED');assert.equal(result.result.proactiveMessages.length,0);assert.ok(!JSON.stringify(result.result).includes('private-group'));assert.equal(h.config().bots.length,2);});
 test('failed owner lookup does not forge empty global config or loosen arbitrary proactive permission',async()=>{const h=await runtime();h.failures.get='PERMISSION_DENIED';const status=await h.tool('get_status',{session_context:{session_id:'owner'}});assert.equal(status.ok,true);assert.equal(status.result.config,undefined);assert.equal(status.result.config_visibility,'not-included');assert.equal(status.result.caller_scope.kind,'unverified');assert.equal(status.result.caller_scope.code,'PERMISSION_DENIED');assert.match(status.result.scope_message,/不代表账号或凭证被删除/);const ui=await h.ui('snapshot');assert.equal(ui.data.config.bots.length,2);const send=await h.tool('send_group_message',{bot_id:'bot1',group_openid:'other',text:'not authorized',request_key:'r1',session_context:{session_id:'owner'}});assert.equal(send.ok,false);assert.equal(h.calls.filter(c=>c.req?.method==='qq/send-group').length,0);});
 test('verified owner view may accurately report a truly empty stored bot list',async()=>{const h=await runtime({config:{schema:3,bots:[]}});assert.equal(h.first.result.caller_scope.kind,'owner');assert.equal(h.first.result.config_visibility,'full');assert.equal(h.first.result.config.schema,3);assert.equal(h.first.result.config.bots.length,0);});
+
+for (const minutes of [5,1200]) test('member task expires at configured '+minutes+' minutes',async()=>{
+  const config=structuredClone(configuration);
+  config.bots[0].idleMinutes=minutes;
+  const h=await runtime({config}), a=await h.receive('a');
+  await h.reply(a);
+  h.clock.now+=minutes*60000-1;
+  const b=await h.receive('b');
+  assert.equal(b.taskId,a.taskId);
+  await h.reply(b);
+  h.clock.now+=minutes*60000;
+  assert.notEqual((await h.receive('c')).taskId,b.taskId);
+});

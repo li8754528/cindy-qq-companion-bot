@@ -2,6 +2,10 @@ export const BOT_IDS = ['bot1','bot2','bot3','bot4'];
 export const secretKey = id => id === 'bot1' ? 'qq_app_secret' : 'qq_app_secret_' + id.slice(3);
 export const connectMethod = id => id === 'bot1' ? 'qq/connect' : 'qq/connect/' + id.slice(3);
 const invalid = message => { throw Object.assign(new Error(message), {code:'BOT_CONFIG_INVALID'}); };
+export function idleMinutesFrom(value = 120) {
+  if (!Number.isInteger(value) || value < 5 || value > 1200) invalid('会话时长须为 5 到 1200 之间的整数分钟。');
+  return value;
+}
 export function routeFrom(value) {
   if (value == null) return null;
   if (!['cc','codex','pi'].includes(value.agentKind) || typeof value.providerId !== 'string' || !value.providerId || value.providerId.length > 128 || typeof value.model !== 'string' || !value.model || value.model.length > 256 || typeof value.effort !== 'string' || value.effort.length > 32 || ![true,false,'ultrafast'].includes(value.fastMode) || value.agentDeviceId) invalid('请选择本机可用的完整模型与推理强度。');
@@ -31,7 +35,7 @@ export function fleetConfig(raw = {}) {
     if (appId && apps.has(appId)) throw Object.assign(new Error('同一个 AppID 只能配置一次。'),{code:'BOT_APP_DUPLICATE'});
     if (appId) apps.add(appId);
     const paused = b.paused === true || (b.paused !== false && b.enabled === false && !!appId && !!b.targetId);
-    return {id:b.id,name:typeof b.name==='string'&&b.name.trim()?b.name.trim().slice(0,60):'机器人 '+(index+1),appId,enabled:b.enabled===true&&!paused,paused,sandbox:b.sandbox===true,groupMode:'all',groups:raw.schema===3?groupsFrom(b.groups):[]};
+    return {id:b.id,idleMinutes:idleMinutesFrom(b.idleMinutes),name:typeof b.name==='string'&&b.name.trim()?b.name.trim().slice(0,60):'机器人 '+(index+1),appId,enabled:b.enabled===true&&!paused,paused,sandbox:b.sandbox===true,groupMode:'all',groups:raw.schema===3?groupsFrom(b.groups):[]};
   });
   const config={schema:3,bots};
   if (new TextEncoder().encode(JSON.stringify(config)).length > 64000) invalid('群配置超过存储上限，请减少配置后保存；原配置未覆盖。');

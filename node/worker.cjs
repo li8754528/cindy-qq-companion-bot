@@ -7097,8 +7097,9 @@ var QQClientBridge = class {
     if (!this.client || this.appId !== params.appId || this.connectionState !== "connected" || params.epoch !== this.epoch || !!params.sandbox !== !!this.sandbox) throw fault("QQ_NOT_CONNECTED", "\u539F\u673A\u5668\u4EBA\u8FDE\u63A5\u5DF2\u5931\u6548\uFF0C\u672A\u53D1\u9001\u3002");
     if (![params.groupId, params.messageId, params.requestId].every((x) => typeof x === "string" && x.length > 0 && x.length <= 160) || typeof params.text !== "string" || !params.text.trim() || params.text.length > 1800 || params.msgIdx !== void 0 && (typeof params.msgIdx !== "string" || !params.msgIdx || params.msgIdx.length > 256)) throw fault("INVALID_REPLY", "\u539F\u8BF7\u6C42\u6216\u6700\u7EC8\u7B54\u6848\u65E0\u6548\u3002");
     this.finalRecords ??= /* @__PURE__ */ new Map();
-    const signature = JSON.stringify([params.appId, !!params.sandbox, params.groupId, params.messageId, params.text, params.msgIdx]);
-    let record = this.finalRecords.get(params.requestId);
+    const signature = JSON.stringify([params.appId, !!params.sandbox, params.groupId, params.messageId, params.text, params.msgIdx, params.senderId]);
+    const recordKey = JSON.stringify([params.requestId, params.replySeq || 1]);
+    let record = this.finalRecords.get(recordKey);
     if (record && record.signature !== signature) throw fault("FINAL_CONFLICT", "\u540C\u4E00\u8BF7\u6C42\u5DF2\u6709\u4E0D\u540C\u6700\u7EC8\u7B54\u6848\u3002");
     if (!record) {
       if (stage !== "reply") throw fault("FINAL_STATE_REQUIRED", "\u6CA1\u6709\u672C\u6B21\u660E\u786E\u88AB\u52A8\u5931\u8D25\u8BB0\u5F55\uFF0C\u672A\u4E3B\u52A8\u53D1\u9001\u3002");
@@ -7110,16 +7111,17 @@ var QQClientBridge = class {
       }
       if (this.finalRecords.size >= 200) throw fault("FINAL_INBOX_FULL", "\u53D1\u9001\u8BB0\u5F55\u5DF2\u6EE1\uFF0C\u672A\u5220\u9664\u672A\u77E5\u56DE\u6267\u3002");
       record = { signature };
-      this.finalRecords.set(params.requestId, record);
+      this.finalRecords.set(recordKey, record);
     }
     if (stage === "active" && record.reply?.outcome !== "rejected") throw fault("FINAL_STATE_REQUIRED", "\u88AB\u52A8\u7ED3\u679C\u672A\u660E\u786E\u62D2\u7EDD\uFF0C\u672A\u4E3B\u52A8\u8865\u53D1\u3002");
     if (record[stage]) return record[stage];
     record[stage] = { sent: false, outcome: "uncertain", code: "QQ_SEND_UNCERTAIN" };
     const bot = this.client, generation = this.generation;
     try {
-      const result = await bot.send({ target: { scope: "group", targetId: params.groupId, ...stage === "reply" ? { msgId: params.messageId } : {} }, msgType: 0, content: params.text, ...params.msgIdx ? { messageReference: { message_id: params.msgIdx } } : {}, extra: { msg_seq: 1 } });
+      const result = await bot.send({ target: { scope: "group", targetId: params.groupId, ...stage === "reply" ? { msgId: params.messageId } : {} }, ...params.senderId ? { msgType: 2, markdown: { content: `<qqbot-at-user id="${params.senderId}" /> ${params.text}` } } : { msgType: 0, content: params.text }, ...params.msgIdx && (stage === "reply" || !params.senderId) ? { messageReference: { message_id: params.msgIdx } } : {}, extra: { msg_seq: params.replySeq || 1 } });
       if (this.client !== bot || generation !== this.generation || typeof result?.id !== "string" || !result.id.trim() || result.id.length > 512) return record[stage];
-      record[stage] = { sent: true, messageId: result.id, ...typeof result.timestamp === "string" ? { timestamp: result.timestamp } : {} };
+      const refIdx = result.ext_info?.ref_idx;
+      record[stage] = { sent: true, messageId: result.id, ...typeof refIdx === "string" && refIdx.trim() && refIdx.length <= 256 ? { refIdx } : {}, ...typeof result.timestamp === "string" ? { timestamp: result.timestamp } : {} };
       return record[stage];
     } catch (error) {
       if (this.client === bot && generation === this.generation) record[stage] = rejectedMessage(error, "/v2/groups/" + params.groupId + "/messages");

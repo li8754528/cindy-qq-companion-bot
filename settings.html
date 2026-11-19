@@ -12,12 +12,13 @@
 <label for="appid">AppID</label><input id="appid" inputmode="numeric" autocomplete="off">
 <label for="secret">AppSecret <span id="secret-state" class="muted"></span></label><input id="secret" type="password" autocomplete="new-password" placeholder="已保存时留空；填写可替换">
 <div class="actions"><button id="save-secret">保存凭证</button><a href="https://q.qq.com/">QQ 开放平台 ↗</a></div>
+<label>会话空闲时长（分钟，5–1200）<input id="idle-minutes" type="number" min="5" max="1200" step="1" value="120" required></label>
 <label class="check"><input id="sandbox" type="checkbox">使用 QQ 沙箱环境</label>
 <div class="actions"><button id="connect" class="primary">保存并连接</button><button id="save-config">保存配置</button><button id="pause">暂停此机器人</button></div></section>
 <section><div class="section-heading"><h2>群项目与模型</h2><button id="refresh-projects">刷新项目</button></div>
 <p class="muted">先在群内 @ 一次，群标识会显示在这里。每个群都需选择项目及模型与推理强度；旧伙伴不会自动成为项目。</p><div id="groups"></div></section>
 <section><div class="section-heading"><h2>运行与等待</h2><button id="refresh">刷新状态</button></div><p id="connection" class="status-pill"></p><p id="history-state" class="muted"></p>
-<p class="muted">仍需 @，无需 /talk。同一成员在同一群使用独立任务，两小时无有效互动后下次 @ 新建。最终答案先回复原消息，明确失败后主动补发一次；结果不确定不会补发。</p>
+<p class="muted">仍需 @，无需 /talk。同一成员在同一群使用独立任务，达到设置的空闲时长（默认 120 分钟）后下次 @ 新建。最终答案先回复原消息，明确失败后主动补发一次；结果不确定不会补发。</p>
 <div id="jobs"></div>
 <details><summary>管理会话与凭证</summary><div class="actions"><button id="clear-history">结束连续会话</button><button id="clear-secret">清除凭证并暂停</button></div><p class="muted">结束会话只影响下一次 @，Cindy 原任务和历史保留。发送记录不被清空。</p></details></section>
 </div>

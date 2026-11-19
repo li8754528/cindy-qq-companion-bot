@@ -1,5 +1,5 @@
-import {groupsFrom} from './config.mjs';
-export const PLUGIN_ID='qq-companion-bot',PLUGIN_VERSION='1.6.5',TALK_IDLE_MS=2*60*60*1000;
+import {groupsFrom,idleMinutesFrom} from './config.mjs';
+export const PLUGIN_ID='qq-companion-bot',PLUGIN_VERSION='1.7.1',TALK_IDLE_MS=2*60*60*1000;
 const DONE=new Set(['replied','failed','cancelled','expired','no_reply','uncertain']);
 const SEND_STATES=new Set(['replying','proactive_sending']);
 const STATES=new Set([...DONE,'queued','sending','waiting','replying','reply_rejected','proactive_sending']);
@@ -14,12 +14,12 @@ function validateCurrentState(d){
   for(const h of d.histories)if(!identifier(h.id)||typeof h.key!=='string'||h.key.length>16000||!Number.isSafeInteger(h.updatedAt)||h.updatedAt<0||h.taskId!==undefined&&!identifier(h.taskId))throw fault('STATE_INVALID','成员会话映射损坏。');
 }
 export function fault(code,message) {return Object.assign(new Error(message),{code});}
-export function configFrom(raw={}) {return {appId:typeof raw.appId==='string'?raw.appId.trim():'',enabled:raw.enabled===true,sandbox:raw.sandbox===true,groupMode:'all',groups:groupsFrom(raw.groups)};}
+export function configFrom(raw={}) {return {idleMinutes:idleMinutesFrom(raw.idleMinutes),appId:typeof raw.appId==='string'?raw.appId.trim():'',enabled:raw.enabled===true,sandbox:raw.sandbox===true,groupMode:'all',groups:groupsFrom(raw.groups)};}
 async function digest(value) {const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(value)));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');}
 export class BridgeController {
   constructor(host) {this.host=host;this.cfg=configFrom();this.jobs=[];this.groups=[];this.histories=[];this.connection='idle';this.connectionCode='';this.writeChain=Promise.resolve();this.receiving=Promise.resolve();this.pumping=false;this.targetFlight=null;this.runtimeGeneration=0;this.connectionEpoch=null;}
   now(){return this.host.now?.()??Date.now();}
-  snapshot(){return {version:PLUGIN_VERSION,connection:this.connection,connectionCode:this.connectionCode,config:this.cfg,groups:this.groups,conversationCount:this.histories.filter(h=>this.now()-h.updatedAt<TALK_IDLE_MS).length,jobs:this.jobs.filter(j=>j.finalEligible||j.state==='queued').concat(this.jobs.filter(j=>!j.finalEligible&&j.state!=='queued').slice(-24)).reverse().map(({id,groupId,senderId,imageCount,state,createdAt,code,slotReleased,finalEligible,taskId,runId,delivery})=>({id,groupId,senderId,imageCount,state,createdAt,code,slotReleased,finalEligible,taskId,runId,delivery,mode:'member'}))};}
+  snapshot(){return {version:PLUGIN_VERSION,connection:this.connection,connectionCode:this.connectionCode,config:this.cfg,groups:this.groups,conversationCount:this.histories.filter(h=>this.now()-h.updatedAt<this.cfg.idleMinutes*60000).length,jobs:this.jobs.filter(j=>j.finalEligible||j.state==='queued').concat(this.jobs.filter(j=>!j.finalEligible&&j.state!=='queued').slice(-24)).reverse().map(({id,groupId,senderId,imageCount,state,createdAt,code,slotReleased,finalEligible,taskId,runId,delivery})=>({id,groupId,senderId,imageCount,state,createdAt,code,slotReleased,finalEligible,taskId,runId,delivery,mode:'member'}))};}
   changed(){this.host.changed?.(this.snapshot());}
   save(){
     const jobs=this.jobs.map(({text,preview,questionContent,...j})=>j);
@@ -51,9 +51,9 @@ export class BridgeController {
   groupConfig(id){return this.cfg.groups.find(g=>g.groupOpenid===id);}
   conversationKey(j){return JSON.stringify([this.host.botId||'bot1',j.appId,!!j.sandbox,j.groupId,j.senderId,j.configKey]);}
   bindTalk(j){
-    const key=this.conversationKey(j);let h=this.histories.findLast(h=>h.key===key&&this.now()-h.updatedAt<TALK_IDLE_MS&&!this.jobs.some(x=>x.talkId===h.id&&x.nativeSubmissionUnknown));
+    const key=this.conversationKey(j);let h=this.histories.findLast(h=>h.key===key&&this.now()-h.updatedAt<this.cfg.idleMinutes*60000&&!this.jobs.some(x=>x.talkId===h.id&&x.nativeSubmissionUnknown));
     if(!h){
-      this.histories=this.histories.filter(h=>this.now()-h.updatedAt<TALK_IDLE_MS||this.jobs.some(j=>j.talkId===h.id&&j.finalEligible));
+      this.histories=this.histories.filter(h=>this.now()-h.updatedAt<this.cfg.idleMinutes*60000||this.jobs.some(j=>j.talkId===h.id&&j.finalEligible));
       if(this.histories.length>=80)throw fault('SESSION_LIMIT','连续会话已满，未创建任务；请结束闲置会话。');
       h={id:crypto.randomUUID(),key,groupId:j.groupId,senderId:j.senderId,updatedAt:this.now(),accepted:false};this.histories.push(h);
     }
@@ -124,10 +124,11 @@ export class BridgeController {
   async reply(id,text,session){
     const j=await this.forCaller(id,session);if(typeof text!=='string'||!text.trim()||text.length>1800)throw fault('REPLY_TOO_LONG','请将最终答案缩短到1800字符以内。');
     const final=text.trim(),fingerprint=await digest(final);
-    if(j.finalFingerprint&&j.finalFingerprint!==fingerprint)throw fault('FINAL_CONFLICT','同一请求已有另一份最终答案，未发送。');
-    if(j.state==='replied')return {sent:true,duplicate:true,request_id:id,message_id:j.replyId,delivery:j.delivery};
-    if(!j.finalEligible||j.state!=='waiting')throw fault('QUESTION_NOT_WAITING','此请求不能重复发送，请查看原状态。');
+    const continuation=j.state==='replied';
+    if(continuation&&j.finalFingerprint===fingerprint)return {sent:true,duplicate:true,request_id:id,message_id:j.replyId,delivery:j.delivery};
+    if(!continuation&&(!j.finalEligible||j.state!=='waiting'))throw fault('QUESTION_NOT_WAITING','此请求不能重复发送，请查看原状态。');
     if(!this.matches(j))throw fault('CONFIG_CHANGED','原机器人已暂停或更换，未发送。');
+    j.replySeq=continuation?(j.replySeq||1)+1:1;
     j.state='replying';j.finalFingerprint=fingerprint;j.finalText=final;
     try{await this.save();return await this.deliver(j,'reply');}
     catch(e){if(!['replied','failed','uncertain','cancelled'].includes(j.state)){j.state='uncertain';j.code=e.code||'STATE_WRITE_FAILED';j.finalEligible=false;}throw e;}
@@ -136,10 +137,10 @@ export class BridgeController {
   async deliver(j,stage){
     const guard=()=>{if(!this.matches(j)||!this.jobs.includes(j))throw fault('CONFIG_CHANGED','原机器人已改变，未发送。');};
     let result;
-    try{guard();result=await this.host.node(stage==='reply'?'qq/reply':'qq/final-active',{appId:j.appId,sandbox:j.sandbox,epoch:this.connectionEpoch,requestId:j.id,groupId:j.groupId,messageId:j.messageId,msgIdx:j.msgIdx,text:j.finalText});}
+    try{guard();result=await this.host.node(stage==='reply'?'qq/reply':'qq/final-active',{appId:j.appId,sandbox:j.sandbox,epoch:this.connectionEpoch,requestId:j.id,groupId:j.groupId,messageId:j.messageId,senderId:j.senderId,replySeq:j.replySeq,msgIdx:j.replySeq===1?j.msgIdx:j.replyRef,text:j.finalText});}
     catch(e){j.state=['CONFIG_CHANGED','QQ_NOT_CONNECTED','INVALID_REPLY','FINAL_STATE_REQUIRED','FINAL_INBOX_FULL','PERMISSION_DENIED'].includes(e.code)?'failed':'uncertain';j.code=e.code||'QQ_SEND_UNCERTAIN';j.finalEligible=false;delete j.finalText;await this.save();throw fault(j.code,'最终发送未确认，请查看插件状态与原群；不会重发。');}
     if(result?.sent===true&&typeof result.messageId==='string'&&result.messageId.trim()&&result.messageId.length<=512){
-      j.state='replied';j.delivery=stage==='reply'?'passive':'proactive';j.replyId=result.messageId;j.sentAt=this.now();j.finalEligible=false;delete j.finalText;delete j.code;delete j.blockMember;const h=this.talkFor(j);if(h)h.updatedAt=this.now();await this.save();return {sent:true,request_id:j.id,message_id:j.replyId,delivery:j.delivery};
+      j.state='replied';j.delivery=stage==='reply'?'passive':'proactive';j.replyId=result.messageId;j.replyRef=result.refIdx;j.sentAt=this.now();j.finalEligible=false;delete j.finalText;delete j.code;delete j.blockMember;const h=this.talkFor(j);if(h)h.updatedAt=this.now();await this.save();return {sent:true,request_id:j.id,message_id:j.replyId,delivery:j.delivery};
     }
     if(stage==='reply'&&result?.outcome==='rejected'){
       j.state='reply_rejected';j.replyFailure=result.code;await this.save();guard();

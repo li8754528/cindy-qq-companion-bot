@@ -6,6 +6,10 @@
   var invalid = (message) => {
     throw Object.assign(new Error(message), { code: "BOT_CONFIG_INVALID" });
   };
+  function idleMinutesFrom(value = 120) {
+    if (!Number.isInteger(value) || value < 5 || value > 1200) invalid("\u4F1A\u8BDD\u65F6\u957F\u987B\u4E3A 5 \u5230 1200 \u4E4B\u95F4\u7684\u6574\u6570\u5206\u949F\u3002");
+    return value;
+  }
   function routeFrom(value) {
     if (value == null) return null;
     if (!["cc", "codex", "pi"].includes(value.agentKind) || typeof value.providerId !== "string" || !value.providerId || value.providerId.length > 128 || typeof value.model !== "string" || !value.model || value.model.length > 256 || typeof value.effort !== "string" || value.effort.length > 32 || ![true, false, "ultrafast"].includes(value.fastMode) || value.agentDeviceId) invalid("\u8BF7\u9009\u62E9\u672C\u673A\u53EF\u7528\u7684\u5B8C\u6574\u6A21\u578B\u4E0E\u63A8\u7406\u5F3A\u5EA6\u3002");
@@ -35,7 +39,7 @@
       if (appId && apps.has(appId)) throw Object.assign(new Error("\u540C\u4E00\u4E2A AppID \u53EA\u80FD\u914D\u7F6E\u4E00\u6B21\u3002"), { code: "BOT_APP_DUPLICATE" });
       if (appId) apps.add(appId);
       const paused = b.paused === true || b.paused !== false && b.enabled === false && !!appId && !!b.targetId;
-      return { id: b.id, name: typeof b.name === "string" && b.name.trim() ? b.name.trim().slice(0, 60) : "\u673A\u5668\u4EBA " + (index + 1), appId, enabled: b.enabled === true && !paused, paused, sandbox: b.sandbox === true, groupMode: "all", groups: raw.schema === 3 ? groupsFrom(b.groups) : [] };
+      return { id: b.id, idleMinutes: idleMinutesFrom(b.idleMinutes), name: typeof b.name === "string" && b.name.trim() ? b.name.trim().slice(0, 60) : "\u673A\u5668\u4EBA " + (index + 1), appId, enabled: b.enabled === true && !paused, paused, sandbox: b.sandbox === true, groupMode: "all", groups: raw.schema === 3 ? groupsFrom(b.groups) : [] };
     });
     const config = { schema: 3, bots };
     if (new TextEncoder().encode(JSON.stringify(config)).length > 64e3) invalid("\u7FA4\u914D\u7F6E\u8D85\u8FC7\u5B58\u50A8\u4E0A\u9650\uFF0C\u8BF7\u51CF\u5C11\u914D\u7F6E\u540E\u4FDD\u5B58\uFF1B\u539F\u914D\u7F6E\u672A\u8986\u76D6\u3002");
@@ -43,7 +47,7 @@
   }
 
   // src/controller.mjs
-  var PLUGIN_VERSION = "1.6.5";
+  var PLUGIN_VERSION = "1.7.1";
   var TALK_IDLE_MS = 2 * 60 * 60 * 1e3;
   var DONE = /* @__PURE__ */ new Set(["replied", "failed", "cancelled", "expired", "no_reply", "uncertain"]);
   var SEND_STATES = /* @__PURE__ */ new Set(["replying", "proactive_sending"]);
@@ -62,7 +66,7 @@
     return Object.assign(new Error(message), { code });
   }
   function configFrom(raw = {}) {
-    return { appId: typeof raw.appId === "string" ? raw.appId.trim() : "", enabled: raw.enabled === true, sandbox: raw.sandbox === true, groupMode: "all", groups: groupsFrom(raw.groups) };
+    return { idleMinutes: idleMinutesFrom(raw.idleMinutes), appId: typeof raw.appId === "string" ? raw.appId.trim() : "", enabled: raw.enabled === true, sandbox: raw.sandbox === true, groupMode: "all", groups: groupsFrom(raw.groups) };
   }
   async function digest(value) {
     const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)));
@@ -88,7 +92,7 @@
       return this.host.now?.() ?? Date.now();
     }
     snapshot() {
-      return { version: PLUGIN_VERSION, connection: this.connection, connectionCode: this.connectionCode, config: this.cfg, groups: this.groups, conversationCount: this.histories.filter((h) => this.now() - h.updatedAt < TALK_IDLE_MS).length, jobs: this.jobs.filter((j) => j.finalEligible || j.state === "queued").concat(this.jobs.filter((j) => !j.finalEligible && j.state !== "queued").slice(-24)).reverse().map(({ id, groupId, senderId, imageCount, state, createdAt, code, slotReleased, finalEligible, taskId, runId, delivery }) => ({ id, groupId, senderId, imageCount, state, createdAt, code, slotReleased, finalEligible, taskId, runId, delivery, mode: "member" })) };
+      return { version: PLUGIN_VERSION, connection: this.connection, connectionCode: this.connectionCode, config: this.cfg, groups: this.groups, conversationCount: this.histories.filter((h) => this.now() - h.updatedAt < this.cfg.idleMinutes * 6e4).length, jobs: this.jobs.filter((j) => j.finalEligible || j.state === "queued").concat(this.jobs.filter((j) => !j.finalEligible && j.state !== "queued").slice(-24)).reverse().map(({ id, groupId, senderId, imageCount, state, createdAt, code, slotReleased, finalEligible, taskId, runId, delivery }) => ({ id, groupId, senderId, imageCount, state, createdAt, code, slotReleased, finalEligible, taskId, runId, delivery, mode: "member" })) };
     }
     changed() {
       this.host.changed?.(this.snapshot());
@@ -172,9 +176,9 @@
     }
     bindTalk(j) {
       const key = this.conversationKey(j);
-      let h = this.histories.findLast((h2) => h2.key === key && this.now() - h2.updatedAt < TALK_IDLE_MS && !this.jobs.some((x) => x.talkId === h2.id && x.nativeSubmissionUnknown));
+      let h = this.histories.findLast((h2) => h2.key === key && this.now() - h2.updatedAt < this.cfg.idleMinutes * 6e4 && !this.jobs.some((x) => x.talkId === h2.id && x.nativeSubmissionUnknown));
       if (!h) {
-        this.histories = this.histories.filter((h2) => this.now() - h2.updatedAt < TALK_IDLE_MS || this.jobs.some((j2) => j2.talkId === h2.id && j2.finalEligible));
+        this.histories = this.histories.filter((h2) => this.now() - h2.updatedAt < this.cfg.idleMinutes * 6e4 || this.jobs.some((j2) => j2.talkId === h2.id && j2.finalEligible));
         if (this.histories.length >= 80) throw fault("SESSION_LIMIT", "\u8FDE\u7EED\u4F1A\u8BDD\u5DF2\u6EE1\uFF0C\u672A\u521B\u5EFA\u4EFB\u52A1\uFF1B\u8BF7\u7ED3\u675F\u95F2\u7F6E\u4F1A\u8BDD\u3002");
         h = { id: crypto.randomUUID(), key, groupId: j.groupId, senderId: j.senderId, updatedAt: this.now(), accepted: false };
         this.histories.push(h);
@@ -354,10 +358,11 @@
       const j = await this.forCaller(id, session);
       if (typeof text !== "string" || !text.trim() || text.length > 1800) throw fault("REPLY_TOO_LONG", "\u8BF7\u5C06\u6700\u7EC8\u7B54\u6848\u7F29\u77ED\u52301800\u5B57\u7B26\u4EE5\u5185\u3002");
       const final = text.trim(), fingerprint = await digest(final);
-      if (j.finalFingerprint && j.finalFingerprint !== fingerprint) throw fault("FINAL_CONFLICT", "\u540C\u4E00\u8BF7\u6C42\u5DF2\u6709\u53E6\u4E00\u4EFD\u6700\u7EC8\u7B54\u6848\uFF0C\u672A\u53D1\u9001\u3002");
-      if (j.state === "replied") return { sent: true, duplicate: true, request_id: id, message_id: j.replyId, delivery: j.delivery };
-      if (!j.finalEligible || j.state !== "waiting") throw fault("QUESTION_NOT_WAITING", "\u6B64\u8BF7\u6C42\u4E0D\u80FD\u91CD\u590D\u53D1\u9001\uFF0C\u8BF7\u67E5\u770B\u539F\u72B6\u6001\u3002");
+      const continuation = j.state === "replied";
+      if (continuation && j.finalFingerprint === fingerprint) return { sent: true, duplicate: true, request_id: id, message_id: j.replyId, delivery: j.delivery };
+      if (!continuation && (!j.finalEligible || j.state !== "waiting")) throw fault("QUESTION_NOT_WAITING", "\u6B64\u8BF7\u6C42\u4E0D\u80FD\u91CD\u590D\u53D1\u9001\uFF0C\u8BF7\u67E5\u770B\u539F\u72B6\u6001\u3002");
       if (!this.matches(j)) throw fault("CONFIG_CHANGED", "\u539F\u673A\u5668\u4EBA\u5DF2\u6682\u505C\u6216\u66F4\u6362\uFF0C\u672A\u53D1\u9001\u3002");
+      j.replySeq = continuation ? (j.replySeq || 1) + 1 : 1;
       j.state = "replying";
       j.finalFingerprint = fingerprint;
       j.finalText = final;
@@ -383,7 +388,7 @@
       let result;
       try {
         guard();
-        result = await this.host.node(stage === "reply" ? "qq/reply" : "qq/final-active", { appId: j.appId, sandbox: j.sandbox, epoch: this.connectionEpoch, requestId: j.id, groupId: j.groupId, messageId: j.messageId, msgIdx: j.msgIdx, text: j.finalText });
+        result = await this.host.node(stage === "reply" ? "qq/reply" : "qq/final-active", { appId: j.appId, sandbox: j.sandbox, epoch: this.connectionEpoch, requestId: j.id, groupId: j.groupId, messageId: j.messageId, senderId: j.senderId, replySeq: j.replySeq, msgIdx: j.replySeq === 1 ? j.msgIdx : j.replyRef, text: j.finalText });
       } catch (e) {
         j.state = ["CONFIG_CHANGED", "QQ_NOT_CONNECTED", "INVALID_REPLY", "FINAL_STATE_REQUIRED", "FINAL_INBOX_FULL", "PERMISSION_DENIED"].includes(e.code) ? "failed" : "uncertain";
         j.code = e.code || "QQ_SEND_UNCERTAIN";
@@ -396,6 +401,7 @@
         j.state = "replied";
         j.delivery = stage === "reply" ? "passive" : "proactive";
         j.replyId = result.messageId;
+        j.replyRef = result.refIdx;
         j.sentAt = this.now();
         j.finalEligible = false;
         delete j.finalText;

@@ -11,3 +11,15 @@ test('confirmed HTTP response without message id and generation changes remain u
 test('incoming reference index is safely projected without raw ext/auth_token',async()=>{const h=await fixture();h.bot.emit('message',{}, {kind:'group',rawEventType:'GROUP_AT_MESSAGE_CREATE',groupOpenid:'group',senderId:'sender',messageId:'m',content:'question',timestamp:'2026-11-07T00:00:00Z',msgIdx:'REFIDX_m',messageScene:{ext:['msg_idx=REFIDX_m','auth_token=DO_NOT_LEAK']},raw:{private:'DO_NOT_LEAK'}});const event=h.events.find(e=>e.method==='qq/message');assert.equal(event.params.msgIdx,'REFIDX_m');assert.equal(event.params.timestamp,'2026-11-07T00:00:00Z');assert.ok(!JSON.stringify(h.events).includes('DO_NOT_LEAK'));});
 test('bounded worker cache releases only known terminal rows and never evicts uncertain sends',async()=>{for(const sent of [true,false]){const h=await fixture();h.bridge.finalRecords=new Map(Array.from({length:200},(_,i)=>['old-'+i,{signature:'old',reply:sent?{sent:true,messageId:'old'}:{sent:false,outcome:'uncertain'}}]));if(sent){assert.equal((await h.bridge.reply(h.params)).sent,true);assert.equal(h.calls.length,1);}else{await assert.rejects(h.bridge.reply(h.params),e=>e.code==='FINAL_INBOX_FULL');assert.equal(h.calls.length,0);}assert.equal(h.bridge.finalRecords.size,200);}});
 test('blank SDK reference projection is treated as no index, without forwarding raw ext',async()=>{const h=await fixture();h.bot.emit('message',{}, {kind:'group',rawEventType:'GROUP_AT_MESSAGE_CREATE',groupOpenid:'group',senderId:'sender',messageId:'m',content:'q',msgIdx:'',raw:{auth_token:'PRIVATE'}});const message=h.events.find(e=>e.method==='qq/message');assert.equal(message.params.msgIdx,undefined);assert.ok(!JSON.stringify(h.events).includes('PRIVATE'));});
+
+test('each reply mentions the initiator and exposes only the returned quote index', async () => {
+  const h = await fixture(async () => ({id:'outbound',ext_info:{ref_idx:'outbound-index'}}));
+  const first = {...h.params,senderId:'original-member',replySeq:1};
+  const receipt = await h.bridge.reply(first);
+  assert.equal(receipt.refIdx,'outbound-index');
+  await h.bridge.reply({...first,replySeq:2,msgIdx:receipt.refIdx,text:'second'});
+  await h.bridge.reply({...first,replySeq:3,msgIdx:undefined,text:'third'});
+  assert.deepEqual(h.calls.map(call=>call.messageReference?.message_id),['REFIDX_original','outbound-index',undefined]);
+  assert.deepEqual(h.calls.map(call=>call.extra.msg_seq),[1,2,3]);
+  assert.ok(h.calls.every(call=>call.msgType===2 && call.content===undefined && call.markdown.content.startsWith('<qqbot-at-user id="original-member" /> ')));
+});
